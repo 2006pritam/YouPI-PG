@@ -1,0 +1,2761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>{{MERCHANT_NAME}} — Checkout</title>
+  <style>
+    :root {
+      --primary: {{PRIMARY_COLOR}};
+      --primary-hover: {{PRIMARY_COLOR}};
+      --sidebar-bg: #111827;
+      --sidebar-text: #f9fafb;
+      --sidebar-muted: #cbd5e1;
+      --card-bg: #ffffff;
+      --text-main: #0f172a;
+      --text-muted: #334155;
+      --border: #cbd5e1;
+      --border-dark: #374151;
+      --success: #047857;
+      --danger: #b91c1c;
+      --warning: #b45309;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: #0b0f19;
+      background-image: radial-gradient(circle at 50% 50%, #1e293b 0%, #0b0f19 100%);
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 1rem;
+    }
+
+    /* Modal Dialog — Horizontal Desktop Architecture */
+    .modal-dialog {
+      width: 100%;
+      max-width: 1040px;
+      background: var(--card-bg);
+      border-radius: 1.25rem;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+      display: flex;
+      flex-direction: row;
+      min-height: 600px;
+      position: relative;
+    }
+
+    @media (max-width: 860px) {
+      .modal-dialog {
+        flex-direction: column;
+        max-width: 100%;
+        min-height: auto;
+        border-radius: 1rem;
+      }
+    }
+
+    /* Left Dark Summary Sidebar (36% Desktop Width) */
+    .summary-sidebar {
+      width: 36%;
+      background: var(--sidebar-bg);
+      color: var(--sidebar-text);
+      padding: 2rem 1.75rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      border-right: 1px solid var(--border-dark);
+    }
+
+    @media (max-width: 860px) {
+      .summary-sidebar {
+        width: 100%;
+        padding: 1.25rem 1rem;
+        border-right: none;
+        border-bottom: 1px solid var(--border-dark);
+      }
+    }
+
+    .merchant-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .merchant-logo {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #f59e0b, #ef4444);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+      color: #ffffff;
+      font-weight: 800;
+    }
+
+    .merchant-name {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: #ffffff;
+      letter-spacing: 0.02em;
+    }
+
+    .price-summary {
+      margin-bottom: 1.25rem;
+    }
+
+    .price-label {
+      font-size: 0.8rem;
+      color: var(--sidebar-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+
+    .price-amount {
+      font-size: 2.25rem;
+      font-weight: 800;
+      color: #ffffff;
+      margin-top: 0.2rem;
+    }
+
+    .customer-chip {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 0.75rem;
+      padding: 0.65rem 0.85rem;
+      font-size: 0.85rem;
+      color: #e5e7eb;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+      cursor: pointer;
+    }
+
+    .shopping-bags-graphic {
+      margin-top: auto;
+      margin-bottom: 1rem;
+      text-align: center;
+    }
+    .shopping-bags-graphic svg { width: 140px; height: 100px; }
+    @media (max-width: 768px) { .shopping-bags-graphic { display: none; } }
+
+    .secured-by-footer {
+      font-size: 0.75rem;
+      color: var(--sidebar-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .secured-by-footer strong { color: #ffffff; }
+
+    /* Right Main Panel (64% Desktop Width) */
+    .main-panel {
+      width: 64%;
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+    }
+    @media (max-width: 860px) { .main-panel { width: 100%; } }
+
+    .panel-header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .panel-title { font-size: 1.1rem; font-weight: 700; color: var(--text-main); }
+    .close-btn { background: none; border: none; font-size: 1.25rem; color: var(--text-muted); cursor: pointer; }
+
+    .three-dot-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      width: 34px;
+      height: 34px;
+      border-radius: 0.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .three-dot-btn:hover {
+      background: rgba(0, 0, 0, 0.05);
+      color: var(--text-main);
+      border-color: #94a3b8;
+    }
+    .three-dot-popover {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 0.6rem;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+      min-width: 175px;
+      z-index: 100;
+      padding: 0.35rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+    .three-dot-item {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.55rem 0.75rem;
+      background: transparent;
+      border: none;
+      border-radius: 0.4rem;
+      color: var(--text-main);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      text-align: left;
+      transition: background 0.15s ease;
+    }
+    .three-dot-item:hover:not(:disabled) {
+      background: #f1f5f9;
+      color: var(--primary);
+    }
+    .three-dot-item:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .contact-card-link {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.65rem 0.85rem;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      color: var(--primary);
+      text-decoration: none;
+      font-size: 0.88rem;
+      font-weight: 600;
+      transition: all 0.2s;
+      word-break: break-all;
+    }
+    .contact-card-link:hover {
+      background: #f1f5f9;
+      border-color: var(--primary);
+    }
+    .contact-card-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.65rem 0.85rem;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      color: var(--text-main);
+      font-size: 0.88rem;
+      font-weight: 600;
+    }
+    .btn-copy-case {
+      background: #f1f5f9;
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.3rem 0.65rem;
+      border-radius: 0.35rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      transition: all 0.2s;
+    }
+    .btn-copy-case:hover {
+      background: #e2e8f0;
+      border-color: #94a3b8;
+    }
+    .btn-copy-case.copied {
+      background: #dcfce7;
+      color: #15803d;
+      border-color: #86efac;
+    }
+
+    .panel-body {
+      flex: 1;
+      display: flex;
+      flex-direction: row;
+      overflow: hidden;
+    }
+    @media (max-width: 768px) { .panel-body { flex-direction: column; } }
+
+    /* Options Menu */
+    .options-menu {
+      width: 42%;
+      border-right: 1px solid var(--border);
+      background: #fafafa;
+      display: flex;
+      flex-direction: column;
+    }
+    @media (max-width: 768px) {
+      .options-menu {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        flex-direction: row;
+        overflow-x: auto;
+      }
+    }
+
+    .option-item {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      background: transparent;
+      border-left: 3px solid transparent;
+      border-top: none;
+      border-right: none;
+      text-align: left;
+    }
+    .option-item.active { background: #ffffff; border-left-color: var(--primary); }
+    .option-name { font-weight: 700; font-size: 0.95rem; color: var(--text-main); }
+    .option-subtext { font-size: 0.78rem; color: var(--text-muted); }
+    .mini-icons { display: flex; gap: 0.35rem; margin-top: 0.25rem; }
+    .mini-icon { font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.35rem; border-radius: 0.25rem; }
+
+    /* Option Details Column */
+    .option-details {
+      flex: 1;
+      padding: 1.5rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    @media (max-width: 768px) { .option-details { padding: 1.25rem; } }
+
+    .qr-card {
+      width: 190px;
+      height: 190px;
+      margin: 0 auto 0.75rem auto;
+      padding: 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      background: #ffffff;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .upi-apps-row { display: flex; gap: 0.4rem; justify-content: center; flex-wrap: wrap; margin-bottom: 1rem; }
+    .app-pill { padding: 0.25rem 0.55rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; border: 1px solid var(--border); }
+    .app-pill.phonepe { color: #581c87; border-color: #d8b4fe; }
+    .app-pill.gpay { color: #1d4ed8; border-color: #93c5fd; }
+    .app-pill.cred { color: #0f172a; border-color: #cbd5e1; }
+    .app-pill.paytm { color: #0369a1; border-color: #7dd3fc; }
+    .app-pill.amazon { color: #9a3412; border-color: #fde68a; }
+    .app-pill.bhim { color: #075985; border-color: #bae6fd; }
+
+    .btn {
+      width: 100%;
+      padding: 0.85rem 1.25rem;
+      border-radius: 0.75rem;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      text-decoration: none;
+    }
+    .btn-pay-app { background: #f1f5f9; color: var(--text-main); border: 1px solid var(--border); margin-bottom: 0.75rem; }
+    .btn-primary { background: var(--primary); color: #fff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2); }
+    .btn-primary:hover { background: var(--primary-hover); }
+
+    .timer-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #78350f;
+      background: #fef3c7;
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      margin-bottom: 0.75rem;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.35; transform: scale(1.2); }
+    }
+
+    /* Auth Gate Overlay */
+    .auth-gate-box {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      padding: 1.5rem;
+      text-align: center;
+    }
+    .input-field {
+      width: 100%;
+      padding: 0.7rem;
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      font-size: 0.9rem;
+      margin-bottom: 0.75rem;
+    }
+
+    /* Pre-Gateway Authentication Card */
+    .pre-auth-card {
+      width: 100%;
+      max-width: 440px;
+      background: var(--card-bg);
+      border-radius: 1.25rem;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.08);
+      padding: 2rem 1.75rem;
+      position: relative;
+    }
+
+    .pre-auth-header {
+      text-align: center;
+      margin-bottom: 1.25rem;
+    }
+
+    .pre-auth-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--primary);
+      background: #f1f5f9;
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      margin-bottom: 0.6rem;
+      border: 1px solid var(--border);
+    }
+
+    .pre-auth-order-strip {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 0.75rem 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.25rem;
+      font-size: 0.82rem;
+    }
+
+    .pre-auth-tabs {
+      display: flex;
+      background: #f1f5f9;
+      padding: 0.25rem;
+      border-radius: 0.75rem;
+      margin-bottom: 1.25rem;
+      gap: 0.25rem;
+    }
+
+    .pre-auth-tab-btn {
+      flex: 1;
+      padding: 0.6rem;
+      border: none;
+      background: transparent;
+      border-radius: 0.5rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .pre-auth-tab-btn.active {
+      background: #ffffff;
+      color: var(--text-main);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+
+    /* Saved Accounts & Account Switcher */
+    .saved-accounts-section {
+      margin-bottom: 1.25rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.25rem;
+    }
+    .saved-accounts-title {
+      font-size: 0.78rem;
+      font-weight: 800;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.65rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .saved-account-card {
+      background: #f8fafc;
+      border: 1.5px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 0.75rem 0.85rem;
+      margin-bottom: 0.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .saved-account-card:hover {
+      border-color: var(--primary);
+      background: #ffffff;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+    }
+    .saved-account-card.active {
+      border-color: var(--primary);
+      background: rgba(37, 99, 235, 0.04);
+    }
+    .saved-account-avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 0.9rem;
+      color: var(--primary);
+      flex-shrink: 0;
+    }
+    .saved-account-details {
+      flex: 1;
+      margin-left: 0.65rem;
+      text-align: left;
+      overflow: hidden;
+    }
+    .saved-account-name {
+      font-weight: 800;
+      font-size: 0.88rem;
+      color: var(--text-main);
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .saved-account-meta {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .btn-remove-account {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 0.25rem 0.4rem;
+      border-radius: 0.35rem;
+      font-size: 0.95rem;
+      line-height: 1;
+      transition: color 0.15s ease, background 0.15s ease;
+    }
+    .btn-remove-account:hover {
+      color: #ef4444;
+      background: #fee2e2;
+    }
+
+    /* Account Menu Popover */
+    .account-menu-popover {
+      position: absolute;
+      top: calc(100% + 0.5rem);
+      left: 0;
+      width: 220px;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      box-shadow: 0 10px 25px -5px rgba(0,0,0,0.15), 0 8px 10px -6px rgba(0,0,0,0.1);
+      padding: 0.35rem;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .account-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      border: none;
+      background: transparent;
+      border-radius: 0.5rem;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--text-main);
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.15s ease;
+    }
+    .account-menu-item:hover {
+      background: #f1f5f9;
+    }
+    .account-menu-item.logout {
+      color: #ef4444;
+    }
+    .account-menu-item.logout:hover {
+      background: #fef2f2;
+    }
+
+    /* UPI Provider List & Search */
+    .provider-section {
+      margin-top: 1rem;
+      border-top: 1px solid var(--border);
+      padding-top: 1rem;
+    }
+
+    .provider-search-container {
+      position: relative;
+      margin-bottom: 0.85rem;
+    }
+
+    .provider-search-input {
+      width: 100%;
+      padding: 0.65rem 0.85rem 0.65rem 2.2rem;
+      border: 1px solid var(--border);
+      border-radius: 0.65rem;
+      font-size: 0.85rem;
+      background: #f8fafc;
+      color: var(--text-main);
+      outline: none;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .provider-search-input:focus {
+      border-color: var(--primary);
+      background: #ffffff;
+    }
+
+    .provider-search-icon {
+      position: absolute;
+      left: 0.75rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      pointer-events: none;
+    }
+
+    /* Desktop vs Mobile Provider Section Visibility: Strictly Hidden on Desktop */
+    @media (min-width: 861px) {
+      .provider-section {
+        display: none !important;
+      }
+    }
+
+    /* Mobile 6-App Provider Grid Viewport: 2 Columns x 3 Visible Rows with Vertical Scroll */
+    .providers-grid-viewport {
+      max-height: 195px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      padding: 0.15rem 0.15rem 0.35rem 0.15rem;
+      margin-bottom: 0.75rem;
+      scrollbar-width: thin;
+      scrollbar-color: #cbd5e1 transparent;
+    }
+    .providers-grid-viewport::-webkit-scrollbar {
+      width: 4px;
+    }
+    .providers-grid-viewport::-webkit-scrollbar-thumb {
+      background-color: #cbd5e1;
+      border-radius: 4px;
+    }
+
+    .providers-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.5rem;
+    }
+
+    .provider-btn {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 0.55rem;
+      padding: 0.5rem 0.65rem;
+      border-radius: 0.65rem;
+      border: 1px solid var(--border);
+      background: #ffffff;
+      cursor: pointer;
+      text-align: left;
+      min-height: 52px;
+      box-sizing: border-box;
+      transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .provider-btn:hover {
+      border-color: var(--primary);
+      background: #f8fafc;
+      transform: translateY(-1px);
+    }
+
+    .provider-btn:active {
+      transform: translateY(0);
+    }
+
+    .provider-icon-wrapper {
+      width: 34px;
+      height: 34px;
+      border-radius: 0.5rem;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f1f5f9;
+      flex-shrink: 0;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    }
+
+    .provider-icon-wrapper img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .provider-name-label {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--text-main);
+      line-height: 1.2;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .btn-show-more-apps {
+      width: 100%;
+      padding: 0.65rem 1rem;
+      border-radius: 0.65rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+      background: #f1f5f9;
+      color: var(--text-main);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      margin-bottom: 0.75rem;
+      transition: background 0.15s ease;
+    }
+
+    .btn-show-more-apps:hover {
+      background: #e2e8f0;
+    }
+
+    /* Non-Merchant Instructional Modal */
+    .instruction-modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(11, 15, 25, 0.82);
+      backdrop-filter: blur(6px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      z-index: 9999;
+      animation: fadeIn 0.2s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .instruction-modal-card {
+      width: 100%;
+      max-width: 440px;
+      background: #ffffff;
+      border-radius: 1.25rem;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .instruction-modal-header {
+      padding: 1.1rem 1.25rem 0.75rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .instruction-modal-body {
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .modal-app-icon-wrapper {
+      width: 58px;
+      height: 58px;
+      border-radius: 1rem;
+      overflow: hidden;
+      margin: 0 auto 0.5rem auto;
+      background: #f1f5f9;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-app-icon-wrapper img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .download-toast-indicator {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: #ecfdf5;
+      border: 1px solid #a7f3d0;
+      border-radius: 0.65rem;
+      padding: 0.6rem 0.85rem;
+      font-size: 0.8rem;
+      color: #065f46;
+      font-weight: 600;
+      width: 100%;
+      margin-bottom: 1rem;
+      box-sizing: border-box;
+    }
+
+    .instruction-steps-list {
+      width: 100%;
+      margin-bottom: 1.25rem;
+    }
+
+    .instruction-steps-list ol {
+      margin: 0;
+      padding-left: 1.25rem;
+      font-size: 0.85rem;
+      color: var(--text-main);
+      line-height: 1.6;
+      font-weight: 600;
+    }
+
+    .launch-fallback-notice {
+      width: 100%;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 0.65rem;
+      padding: 0.65rem 0.85rem;
+      font-size: 0.8rem;
+      color: #92400e;
+      margin-bottom: 1rem;
+      box-sizing: border-box;
+    }
+
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+
+<!-- STAGE 1: PRE-GATEWAY CUSTOMER AUTHENTICATION VIEW -->
+<!-- Mandatory: Prompted in checkout portal BEFORE opening the payment gateway interface -->
+<div id="preGatewayAuthView" class="pre-auth-card">
+  <div class="pre-auth-header">
+    <div class="pre-auth-badge">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle; margin-right:4px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <span>YOUPI Customer Network</span>
+    </div>
+    <h2 style="font-size:1.35rem; font-weight:800; color:var(--text-main); margin-bottom:0.35rem;">
+      Customer Authentication
+    </h2>
+    <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.4;">
+      Sign in or create an account to proceed to the payment gateway.
+    </p>
+  </div>
+
+  <!-- Order Context Strip -->
+  <div class="pre-auth-order-strip">
+    <div>
+      <div style="font-size:0.7rem; color:var(--text-muted); font-weight:700; text-transform:uppercase;">Order</div>
+      <strong style="color:var(--text-main);" id="preAuthOrderIdDisplay">{{ORDER_ID}}</strong>
+    </div>
+    <div style="text-align:right;">
+      <div style="font-size:0.7rem; color:var(--text-muted); font-weight:700; text-transform:uppercase;">Total Payable</div>
+      <strong style="font-size:1.15rem; color:var(--text-main);" id="preAuthAmountDisplay">₹{{AMOUNT}}</strong>
+    </div>
+  </div>
+
+  <!-- Saved Accounts Container (Shown if 1 or 2 accounts remembered on this device) -->
+  <div id="preAuthSavedAccountsContainer" class="saved-accounts-section" hidden>
+    <div class="saved-accounts-title">
+      <span>Saved Accounts on this Device</span>
+      <span id="savedAccountCountBadge" style="font-size:0.7rem; background:#e2e8f0; color:#475569; padding:0.1rem 0.4rem; border-radius:9999px;">0/2</span>
+    </div>
+    <div id="savedAccountsList"></div>
+    <div style="text-align:center; margin-top:0.6rem;">
+      <button type="button" style="background:none; border:none; font-size:0.78rem; color:var(--primary); font-weight:700; cursor:pointer;" onclick="showNewAccountForm()">
+        + Sign in or create another account
+      </button>
+    </div>
+  </div>
+
+  <div id="preAuthDirectForms">
+    <!-- Tab Switcher -->
+    <div class="pre-auth-tabs">
+      <button type="button" class="pre-auth-tab-btn active" id="tabPreAuthLoginBtn" onclick="switchPreAuthTab('login')">
+        Sign In
+      </button>
+      <button type="button" class="pre-auth-tab-btn" id="tabPreAuthRegisterBtn" onclick="switchPreAuthTab('register')">
+        Sign Up
+      </button>
+    </div>
+
+    <!-- Sign In Tab Panel -->
+    <div id="preAuthLoginPanel">
+      <div style="margin-bottom:0.75rem;">
+        <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-muted); margin-bottom:0.3rem;">Email or Mobile Number</label>
+        <input id="preAuthIdentifier" type="text" placeholder="e.g. user@example.com or 9876543210" class="input-field" autocomplete="username" />
+      </div>
+      <div style="margin-bottom:1.1rem;">
+        <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-muted); margin-bottom:0.3rem;">Password</label>
+        <input id="preAuthPassword" type="password" placeholder="Enter your password" class="input-field" autocomplete="current-password" />
+      </div>
+      <button class="btn btn-primary" id="btnPreAuthLogin" onclick="submitPreAuth('login')">
+        Sign In &amp; Open Payment Gateway &rsaquo;
+      </button>
+    </div>
+
+    <!-- Create Account Tab Panel (Sign Up: EXACTLY Name, Email, Mobile, Password) -->
+    <div id="preAuthRegisterPanel" hidden>
+      <div style="margin-bottom:0.65rem;">
+        <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-muted); margin-bottom:0.25rem;">Full Name</label>
+        <input id="preAuthRegName" type="text" placeholder="e.g. Rahul Sharma" class="input-field" autocomplete="name" />
+      </div>
+      <div style="margin-bottom:0.65rem;">
+        <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-muted); margin-bottom:0.25rem;">Email Address</label>
+        <input id="preAuthRegEmail" type="email" placeholder="e.g. rahul@example.com" class="input-field" autocomplete="email" />
+      </div>
+      <div style="margin-bottom:0.65rem;">
+        <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-muted); margin-bottom:0.25rem;">Mobile Number</label>
+        <input id="preAuthRegMobile" type="tel" placeholder="e.g. 9876543210" class="input-field" autocomplete="tel" />
+      </div>
+      <div style="margin-bottom:1rem;">
+        <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-muted); margin-bottom:0.25rem;">Password</label>
+        <input id="preAuthRegPassword" type="password" placeholder="Minimum 6 characters" class="input-field" autocomplete="new-password" />
+      </div>
+      <button class="btn btn-primary" id="btnPreAuthRegister" onclick="submitPreAuth('register')">
+        Create Account &amp; Open Payment Gateway &rsaquo;
+      </button>
+    </div>
+  </div>
+
+  <!-- Bottom Trust Info & Cancel -->
+  <div style="margin-top:1.25rem; text-align:center;">
+    <p style="font-size:0.75rem; color:var(--text-muted); line-height:1.4; margin-bottom:0.75rem; display:flex; align-items:center; justify-content:center; gap:0.35rem;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <span>Links this payment with verified transaction receipts and 24/7 order protection.</span>
+    </p>
+    <button type="button" style="background:none; border:none; font-size:0.8rem; color:var(--text-muted); cursor:pointer; text-decoration:underline;" onclick="cancelPayment()">
+      Cancel Payment &amp; Return
+    </button>
+  </div>
+</div>
+
+<!-- STAGE 2: PAYMENT GATEWAY INTERFACE (Opens only AFTER customer sign in or sign up) -->
+<div class="modal-dialog" id="paymentGatewayInterface" hidden>
+  <!-- Left Summary Sidebar -->
+  <aside class="summary-sidebar">
+    <div>
+      <div class="merchant-brand">
+        <div class="merchant-logo" id="sidebarLogoContainer" style="overflow:hidden;">
+          <img id="sidebarLogoImg" src="{{LOGO_URL}}" alt="Logo" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" onerror="this.hidden=true; document.getElementById('sidebarLogoPlaceholder').hidden=false;" />
+          <span id="sidebarLogoPlaceholder" style="font-size:1.25rem; display:inline-flex; align-items:center; justify-content:center;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          </span>
+        </div>
+        <div class="merchant-name" id="sidebarMerchantName">{{MERCHANT_NAME}}</div>
+      </div>
+
+      <div class="price-summary">
+        <div class="price-label">Price Summary</div>
+        <div class="price-amount" id="sidebarAmountDisplay">
+          ₹<span id="sidebarAmountVal">{{AMOUNT}}</span>
+        </div>
+      </div>
+
+      <!-- Logged-in User Information Area with Account Menu -->
+      <div style="position:relative; margin-bottom:1rem;">
+        <div class="customer-chip" id="customerChip" onclick="toggleAccountMenu(event)" title="Account options">
+          <div style="display:flex; align-items:center; gap:0.5rem; overflow:hidden;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span id="customerPhoneDisplay" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Sign In / Register</span>
+          </div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div id="accountMenuPopover" class="account-menu-popover" hidden>
+          <button type="button" class="account-menu-item" onclick="openSwitchAccountModal()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            <span>Switch Account</span>
+          </button>
+          <button type="button" class="account-menu-item logout" onclick="handleCustomerLogout()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+            <span>Log Out</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Shopping Bags Illustration -->
+    <div class="shopping-bags-graphic">
+      <svg viewBox="0 0 140 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="25" y="30" width="45" height="55" rx="6" fill="#047857"/>
+        <path d="M38 30V22C38 18 42 15 47 15C52 15 56 18 56 22V30" stroke="#E5E7EB" stroke-width="4" stroke-linecap="round"/>
+        <rect x="65" y="20" width="50" height="65" rx="6" fill="#065f46"/>
+        <path d="M80 20V12C80 8 84 5 90 5C96 5 100 8 100 12V20" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+      </svg>
+    </div>
+
+    <div class="secured-by-footer">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <span id="footerGuaranteeText">{{FOOTER_GUARANTEE}}</span>
+    </div>
+  </aside>
+
+  <!-- Right Main Panel -->
+  <section class="main-panel">
+    <div class="panel-header">
+      <div class="panel-title">Payment Options</div>
+      <div style="display:flex; align-items:center; gap:0.75rem; position:relative;">
+        <button id="btnThreeDotMenu" type="button" class="three-dot-btn" onclick="toggleThreeDotMenu(event)" title="Options" aria-label="Menu">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="5" cy="12" r="2"/>
+            <circle cx="12" cy="12" r="2"/>
+            <circle cx="19" cy="12" r="2"/>
+          </svg>
+        </button>
+        <div id="threeDotMenuPopover" class="three-dot-popover" hidden>
+          <button id="menuItemPrivacy" type="button" class="three-dot-item" onclick="handleMenuPrivacyClick()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <span>Privacy Policy</span>
+          </button>
+          <button id="menuItemHelp" type="button" class="three-dot-item" onclick="handleMenuHelpClick()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span>Help</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- AUTH GATE: Shown if customer is not logged in -->
+    <div id="authGateContainer" style="padding:1.75rem; flex:1; display:flex; flex-direction:column; justify-content:center;" hidden>
+      <div class="auth-gate-box">
+        <h3 style="margin-bottom:0.35rem;" id="authGateTitle">Sign In to Continue</h3>
+        <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.25rem;" id="authGateSub">
+          Enter your mobile number and password to securely link your order and proceed with payment.
+        </p>
+
+        <div id="registerNameGroup" hidden>
+          <input id="authFullName" type="text" placeholder="Your Full Name" class="input-field" />
+        </div>
+
+        <input id="authPhoneNumber" type="tel" placeholder="Mobile Number (e.g. 9876543210)" class="input-field" />
+        <input id="authPassword" type="password" placeholder="Password" class="input-field" />
+
+        <button class="btn btn-primary" id="btnSubmitAuth" style="margin-bottom:0.75rem;" onclick="submitAuthGate()">
+          Continue to Payment Options &rsaquo;
+        </button>
+
+        <button type="button" style="background:none; border:none; color:var(--primary); font-size:0.85rem; font-weight:700; cursor:pointer;" id="btnToggleAuthMode" onclick="toggleAuthMode()">
+          New customer? Create an account
+        </button>
+      </div>
+    </div>
+
+    <!-- Body Layout (Payment Options): Unlocked after Auth -->
+    <div class="panel-body" id="paymentOptionsBody">
+      <!-- Options Menu on Left -->
+      <nav class="options-menu">
+        <button class="option-item active" id="tabUpiBtn" onclick="switchOptionTab('UPI', true)">
+          <div style="display:flex; justify-content:space-between; width:100%;">
+            <span class="option-name">UPI</span>
+          </div>
+          <div class="mini-icons">
+            <span class="mini-icon" style="color:#ffffff; background:#581c87;">GPay</span>
+            <span class="mini-icon" style="color:#ffffff; background:#1d4ed8;">PhonePe</span>
+            <span class="mini-icon" style="color:#ffffff; background:#0369a1;">Paytm</span>
+          </div>
+        </button>
+
+        <button class="option-item" id="tabCashCounterBtn" onclick="switchOptionTab('CASH_COUNTER', true)">
+          <span class="option-name">Cash at Counter</span>
+          <span class="option-subtext">Pay cash at desk till</span>
+        </button>
+
+        <button class="option-item" id="tabCardCounterBtn" onclick="switchOptionTab('CARD_COUNTER', true)">
+          <span class="option-name">Card at Counter</span>
+          <span class="option-subtext">Swipe / Tap on POS machine</span>
+        </button>
+      </nav>
+
+      <!-- Option Details on Right -->
+      <div class="option-details">
+        <!-- UPI Details -->
+        <div id="viewUpiContent">
+          <div style="text-align:center; margin-bottom:1rem;">
+            <div class="timer-badge" id="activeTimerPill">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span id="activeTimerText">05:00 remaining</span>
+            </div>
+          </div>
+
+          <div style="text-align:center; margin-bottom:1rem;">
+            <div class="qr-card">
+              <div id="qrImageContainer" style="width:100%; height:100%;"></div>
+            </div>
+            <div style="font-size:0.95rem; color:var(--text-main); font-weight:800; margin-bottom:0.25rem;">
+              Scan the QR code using any UPI App
+            </div>
+            <div style="font-size:0.8rem; color:var(--text-muted);" id="upiModeSubtext">
+              Complete the payment on your phone
+            </div>
+          </div>
+
+          <!-- Provider Search and Registry Grid (Mobile Only) -->
+          <div id="providerSection" class="provider-section">
+            <div class="provider-search-container">
+              <span class="provider-search-icon" style="display:flex; align-items:center; justify-content:center;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              </span>
+              <input type="text" id="providerSearchInput" class="provider-search-input" placeholder="Search preferred provider" oninput="filterProviders(this.value)" />
+            </div>
+
+            <!-- 2-column x 3-visible-row mobile grid viewport -->
+            <div class="providers-grid-viewport">
+              <div id="providersGrid" class="providers-grid">
+                <!-- Dynamically populated 30 UPI providers -->
+              </div>
+            </div>
+
+            <button id="btnShowMoreApps" type="button" class="btn-show-more-apps" onclick="handleShowMoreAppsClick()">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+              <span>SHOW MORE APPS</span>
+            </button>
+          </div>
+
+          <button id="btnSubmitPaymentDone" class="btn btn-primary" onclick="submitPaymentDone()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <span>PAYMENT DONE — CHECK MY PAYMENT</span>
+          </button>
+
+          <div style="text-align:center; margin-top:0.75rem;">
+            <button style="background:none; border:none; font-size:0.82rem; color:var(--text-muted); cursor:pointer; text-decoration:underline;" onclick="cancelPayment()">Cancel Payment</button>
+          </div>
+        </div>
+
+        <!-- Cash at Counter -->
+        <div id="viewCashCounterContent" hidden>
+          <div style="text-align:center; padding:0.5rem 0 1rem; border-bottom:1px solid var(--border); margin-bottom:1rem;">
+            <div style="display:inline-flex; align-items:center; justify-content:center; width:48px; height:48px; border-radius:50%; background:#dcfce7; color:#16a34a; margin-bottom:0.5rem;">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 12h.01M18 12h.01"/></svg>
+            </div>
+            <h3 style="margin-bottom:0.25rem; font-size:1.15rem; font-weight:800; color:var(--text-main);">Pay Cash at Store Counter</h3>
+            <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.4;">
+              Please proceed to the billing desk and show these details to the cashier.
+            </p>
+          </div>
+
+          <!-- Merchant Custom Instruction -->
+          <div style="padding:0.75rem 0.85rem; border-left:3px solid var(--primary); background:#f8fafc; border-radius:0 0.5rem 0.5rem 0; margin-bottom:1rem;">
+            <div style="font-size:0.7rem; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:0.15rem;">Counter Instructions</div>
+            <div class="counterInstructionDisplay" style="font-size:0.85rem; color:var(--text-main); line-height:1.4; font-weight:600;">{{COUNTER_INSTRUCTIONS}}</div>
+          </div>
+
+          <!-- Transaction Details: Flat Key-Value Layout with Dividers -->
+          <div style="padding:0.5rem 0; margin-bottom:1rem; border-bottom:1px solid var(--border);">
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:0.45rem 0;">
+              <span style="font-size:0.82rem; color:var(--text-muted); font-weight:600;">Order ID</span>
+              <strong style="font-size:0.95rem; color:var(--text-main);" id="cashOrderIdDisplay">{{ORDER_ID}}</strong>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:0.45rem 0;">
+              <span style="font-size:0.82rem; color:var(--text-muted); font-weight:600;">Payment Reference</span>
+              <code style="font-size:0.78rem; font-family:monospace; color:var(--text-muted);" id="cashTxnIdDisplay">{{PAYMENT_ID}}</code>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; padding:0.6rem 0 0.2rem; border-top:1px dashed var(--border); margin-top:0.25rem;">
+              <span style="font-size:0.85rem; font-weight:700; color:var(--text-main);">Total Payable Cash</span>
+              <span style="font-size:1.85rem; font-weight:900; color:#16a34a;" id="cashAmountDisplay">₹{{AMOUNT}}</span>
+            </div>
+          </div>
+
+          <!-- Live Status Indicator -->
+          <div style="display:flex; align-items:center; gap:0.5rem; font-size:0.82rem; font-weight:700; color:#854d0e; padding:0.65rem 0.85rem; background:#fefce8; border-radius:0.5rem; margin-bottom:1rem;">
+            <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#eab308; animation:pulse 1.5s infinite; flex-shrink:0;"></span>
+            <span>Awaiting cashier confirmation on merchant dashboard...</span>
+          </div>
+
+          <button class="btn btn-pay-app" onclick="switchOptionTab('UPI', true)">
+            ← Change Method / Pay with UPI QR
+          </button>
+        </div>
+
+        <!-- Card at Counter -->
+        <div id="viewCardCounterContent" hidden>
+          <div style="text-align:center; padding:0.5rem 0 1rem; border-bottom:1px solid var(--border); margin-bottom:1rem;">
+            <div style="display:inline-flex; align-items:center; justify-content:center; width:48px; height:48px; border-radius:50%; background:#f1f5f9; color:#0f172a; margin-bottom:0.5rem;">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+            </div>
+            <h3 style="margin-bottom:0.25rem; font-size:1.15rem; font-weight:800; color:var(--text-main);">Swipe / Tap Card on Store POS</h3>
+            <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.4;">
+              Present this screen to the counter operator to process your card on the physical EDC/POS till.
+            </p>
+          </div>
+
+          <!-- Merchant Custom Instruction -->
+          <div style="padding:0.75rem 0.85rem; border-left:3px solid var(--primary); background:#f8fafc; border-radius:0 0.5rem 0.5rem 0; margin-bottom:1rem;">
+            <div style="font-size:0.7rem; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:0.15rem;">Counter Instructions</div>
+            <div class="counterInstructionDisplay" style="font-size:0.85rem; color:var(--text-main); line-height:1.4; font-weight:600;">{{COUNTER_INSTRUCTIONS}}</div>
+          </div>
+
+          <!-- Transaction Details: Flat Key-Value Layout with Dividers -->
+          <div style="padding:0.5rem 0; margin-bottom:1rem; border-bottom:1px solid var(--border);">
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:0.45rem 0;">
+              <span style="font-size:0.82rem; color:var(--text-muted); font-weight:600;">Order ID</span>
+              <strong style="font-size:0.95rem; color:var(--text-main);" id="cardOrderIdDisplay">{{ORDER_ID}}</strong>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:0.45rem 0;">
+              <span style="font-size:0.82rem; color:var(--text-muted); font-weight:600;">Payment Reference</span>
+              <code style="font-size:0.78rem; font-family:monospace; color:var(--text-muted);" id="cardTxnIdDisplay">{{PAYMENT_ID}}</code>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; padding:0.6rem 0 0.2rem; border-top:1px dashed var(--border); margin-top:0.25rem;">
+              <span style="font-size:0.85rem; font-weight:700; color:var(--text-main);">Total Swipe / Tap Amount</span>
+              <span style="font-size:1.85rem; font-weight:900; color:var(--text-main);" id="cardAmountDisplay">₹{{AMOUNT}}</span>
+            </div>
+          </div>
+
+          <!-- Live Status Indicator -->
+          <div style="display:flex; align-items:center; gap:0.5rem; font-size:0.82rem; font-weight:700; color:#854d0e; padding:0.65rem 0.85rem; background:#fefce8; border-radius:0.5rem; margin-bottom:1rem;">
+            <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#eab308; animation:pulse 1.5s infinite; flex-shrink:0;"></span>
+            <span>Awaiting POS receipt confirmation on merchant dashboard...</span>
+          </div>
+
+          <button class="btn btn-pay-app" onclick="switchOptionTab('UPI', true)">
+            ← Change Method / Pay with UPI QR
+          </button>
+        </div>
+
+        <!-- 30-Second Verification Screen -->
+        <div id="viewProcessingContent" hidden>
+          <div style="text-align:center; padding:2rem 1rem;">
+            <div style="margin-bottom:1rem; display:inline-flex; align-items:center; justify-content:center; width:64px; height:64px; border-radius:50%; background:#e0f2fe; color:#0284c7;">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin-animation"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
+            </div>
+            <h3 style="margin-bottom:0.5rem; font-size:1.25rem; font-weight:800; color:var(--text-main);">Checking Your Payment</h3>
+            <div class="timer-badge">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span id="procTimerText">30s remaining</span>
+            </div>
+            <p style="font-size:0.85rem; color:var(--text-muted); line-height:1.5; margin-top:0.75rem;">
+              Observing incoming bank confirmation across automated Gmail and SMS observer channels...
+            </p>
+          </div>
+        </div>
+
+        <!-- SUCCESS Screen (Clean, Authentic Standard Payment Gateway UI) -->
+        <div id="viewSuccessContent" hidden>
+          <div style="text-align:center; padding:2.5rem 1rem;">
+            <div style="width:68px; height:68px; border-radius:50%; background:#d1fae5; color:#047857; display:flex; align-items:center; justify-content:center; margin:0 auto 1.25rem auto;">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <h2 style="color:#047857; font-size:1.6rem; font-weight:800; margin-bottom:0.35rem;">Payment Successful</h2>
+            <div style="font-size:2rem; font-weight:900; color:var(--text-main); margin-bottom:0.75rem;" id="successAmountVal">₹0.00</div>
+            <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:1.75rem;">
+              Your payment has been received and confirmed. Returning to store...
+            </p>
+            <a id="btnReturnStore" href="#" class="btn btn-primary" style="max-width:240px; margin:0 auto;">Return to Store</a>
+          </div>
+        </div>
+
+        <!-- FAILED Screen -->
+        <div id="viewFailedContent" hidden>
+          <div style="text-align:center; padding:2rem 1rem;">
+            <div style="width:64px; height:64px; border-radius:50%; background:#fee2e2; color:#b91c1c; display:flex; align-items:center; justify-content:center; margin:0 auto 1rem auto;">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </div>
+            <h3 style="color:#b91c1c; margin-bottom:0.5rem;" id="failedTitleText">Payment Not Confirmed</h3>
+            <p style="font-size:0.85rem; color:var(--text-muted); line-height:1.5; margin-bottom:1.5rem;" id="failedDescriptionText">
+              No matching UPI confirmation was detected during the 30-second verification period. If money was debited, please contact merchant support with your order details.
+            </p>
+            <a id="btnFailedReturnStore" href="#" class="btn btn-primary" style="margin-bottom:0.75rem;" hidden>
+              &larr; Return to Store (Failed Order)
+            </a>
+            <button class="btn btn-pay-app" style="margin-bottom:0.75rem;" onclick="emitTriggerHook('RETRY_CLICKED'); window.location.reload()">Retry Payment</button>
+            <a id="btnContactHelp" href="javascript:void(0)" class="btn btn-pay-app" onclick="event.preventDefault(); openHelpModal();">Contact Merchant Support</a>
+          </div>
+        </div>
+
+        <!-- QUEUED Screen -->
+        <div id="viewQueuedContent" hidden>
+          <div style="text-align:center; padding:2rem 1rem;">
+            <div style="font-size:0.85rem; font-weight:700; color:var(--primary); text-transform:uppercase;">Payment Slot Queue</div>
+            <div style="font-size:3.5rem; font-weight:900; color:var(--primary); margin:0.5rem 0;" id="queueNumberDisplay">#1</div>
+            <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:1rem;">
+              Estimated activation in <strong id="queueTimerText">02:30</strong>
+            </p>
+            <p style="font-size:0.8rem; color:var(--text-muted); line-height:1.4;">
+              To protect exact amount attribution, only one payment slot is active at a time. Your 5-minute payment window begins automatically when your turn arrives.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Non-Merchant Instructional Modal -->
+<div id="instructionalModal" class="instruction-modal-overlay" hidden>
+  <div class="instruction-modal-card">
+    <div class="instruction-modal-header">
+      <div style="display:flex; align-items:center; gap:0.5rem;">
+        <h3 id="instructionalModalTitle" style="margin:0; font-size:1.05rem; font-weight:800; color:var(--text-main);">
+          Pay using UPI App
+        </h3>
+      </div>
+      <button type="button" class="close-btn" onclick="closeInstructionalModal()" title="Close" aria-label="Close">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div class="instruction-modal-body">
+      <!-- Official App Logo & App Name -->
+      <div style="text-align:center; margin-bottom:1rem;">
+        <div class="modal-app-icon-wrapper">
+          <img id="modalAppIcon" src="" alt="App Logo" />
+        </div>
+        <div id="modalAppName" style="font-size:1.15rem; font-weight:800; color:var(--text-main); line-height:1.2;">Google Pay</div>
+      </div>
+
+      <!-- Auto QR Download Indicator Toast -->
+      <div class="download-toast-indicator">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span>Your payment QR was downloaded to your device.</span>
+      </div>
+
+      <!-- 3 Clear Instructions -->
+      <div class="instruction-steps-list">
+        <div style="font-size:0.85rem; color:var(--text-muted); line-height:1.45; margin-bottom:0.5rem;">
+          Use the downloaded QR to complete your payment:
+        </div>
+        <ol>
+          <li>Open <span id="instructionAppName">Google Pay</span></li>
+          <li>Choose the QR / Gallery / Scan from gallery option</li>
+          <li>Select the downloaded QR and complete payment</li>
+        </ol>
+      </div>
+
+      <!-- Fallback notification if app launch fails or is blocked -->
+      <div id="launchFallbackNotice" class="launch-fallback-notice" hidden>
+        Couldn't open the app automatically. Open <span id="fallbackAppName" style="font-weight:700;">the app</span> manually and select the downloaded QR.
+      </div>
+
+      <!-- Modal Action Buttons: Launch App Only + Secondary -->
+      <div style="width:100%; display:flex; flex-direction:column; gap:0.5rem;">
+        <button id="btnLaunchApp" type="button" class="btn btn-primary" onclick="handleLaunchAppOnly()" style="width:100%;" aria-label="Launch selected app">
+          Launch App
+        </button>
+        <button type="button" class="btn" style="background:#f1f5f9; color:var(--text-main); border:1px solid var(--border); width:100%;" onclick="triggerManualQrDownload()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Download QR Code Again</span>
+        </button>
+        <button type="button" class="btn" style="background:transparent; color:var(--text-muted); border:none; font-size:0.85rem; padding:0.4rem;" onclick="closeInstructionalModal()">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Help Modal / Contact Popup -->
+<div id="helpModal" class="instruction-modal-overlay" hidden>
+  <div class="instruction-modal-card" style="max-width:480px; width:92%; max-height:90vh; overflow-y:auto;">
+    <div class="instruction-modal-header" style="border-bottom:1px solid var(--border); padding-bottom:0.75rem;">
+      <div style="display:flex; align-items:center; gap:0.5rem;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <h3 style="margin:0; font-size:1.05rem; font-weight:800; color:var(--text-main);">
+          Merchant Support &amp; Help
+        </h3>
+      </div>
+      <button type="button" class="close-btn" onclick="closeHelpModal()" title="Close">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div style="padding:1.25rem 0;">
+      <!-- SECTION A: Merchant Email Contacts -->
+      <div style="margin-bottom:1.25rem;">
+        <div style="font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.5rem; display:flex; align-items:center; gap:0.35rem;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          <span>Support Emails (Click to compose)</span>
+        </div>
+        <div id="helpModalEmailsContainer" style="display:flex; flex-direction:column; gap:0.4rem;">
+          <!-- Dynamic Emails -->
+        </div>
+      </div>
+
+      <!-- SECTION B: Merchant Mobile Contacts -->
+      <div style="margin-bottom:1.25rem;">
+        <div style="font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.5rem; display:flex; align-items:center; gap:0.35rem;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+          <span>Support Phone Numbers</span>
+        </div>
+        <div id="helpModalMobilesContainer" style="display:flex; flex-direction:column; gap:0.4rem;">
+          <!-- Dynamic Mobiles -->
+        </div>
+      </div>
+
+      <!-- SECTION C: Dynamic Current Case Information -->
+      <div style="background:#f8fafc; border:1px solid var(--border); border-radius:0.5rem; padding:0.85rem; margin-bottom:1.25rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
+          <span style="font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); display:flex; align-items:center; gap:0.35rem;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <span>Current Payment Case</span>
+          </span>
+          <button id="btnCopyCaseInfo" type="button" class="btn-copy-case" onclick="copyCaseInfo()">
+            <span id="copyCaseIcon" style="display:inline-flex; align-items:center;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </span>
+            <span id="copyCaseText">Copy</span>
+          </button>
+        </div>
+        <pre id="helpModalCaseInfoText" style="font-family:inherit; font-size:0.82rem; line-height:1.5; color:var(--text-main); white-space:pre-wrap; margin:0;"></pre>
+      </div>
+
+      <div style="text-align:right;">
+        <button type="button" class="btn btn-secondary" onclick="closeHelpModal()" style="padding:0.45rem 1rem; font-size:0.85rem;">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Switch Account Modal -->
+<div id="switchAccountModal" class="instruction-modal-overlay" hidden>
+  <div class="instruction-modal-card" style="max-width:440px; width:92%; max-height:90vh; overflow-y:auto;">
+    <div class="instruction-modal-header" style="border-bottom:1px solid var(--border); padding-bottom:0.75rem;">
+      <div style="display:flex; align-items:center; gap:0.5rem;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <h3 style="margin:0; font-size:1.05rem; font-weight:800; color:var(--text-main);">
+          Switch Customer Account
+        </h3>
+      </div>
+      <button type="button" class="close-btn" onclick="closeSwitchAccountModal()" title="Close">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div style="padding:1.25rem 0;">
+      <!-- Active Payment Warning if session is active -->
+      <div id="switchAccountPaymentWarning" style="background:#fffbeb; border:1px solid #fef3c7; border-radius:0.5rem; padding:0.75rem; margin-bottom:1rem; font-size:0.78rem; color:#b45309; line-height:1.4; display:flex; align-items:flex-start; gap:0.4rem;" hidden>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; margin-top:0.1rem;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span><strong>Note:</strong> Current payment session is active and bound to <strong id="switchWarningCustomerName"></strong>. Switching accounts in your browser will not alter or reassign this active payment.</span>
+      </div>
+
+      <div style="font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted); margin-bottom:0.6rem;">
+        Remembered Accounts (Max 2)
+      </div>
+
+      <div id="modalSavedAccountsList" style="display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1rem;">
+        <!-- Dynamic accounts list -->
+      </div>
+
+      <div id="modalAddAccountAction" style="text-align:center;">
+        <button type="button" class="btn" style="background:#f1f5f9; color:var(--text-main); border:1.5px dashed var(--border); width:100%; font-size:0.85rem; padding:0.65rem;" onclick="handleAddAnotherAccountClick()">
+          + Add Another Account
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const PAYMENT_ID = "{{PAYMENT_ID}}";
+  const API_BASE = "{{API_BASE_URL}}";
+  const HELP_PORTAL_BASE = "{{HELP_PORTAL_URL}}";
+
+  let state = null;
+  let countdownTimer = null;
+  let queuePollTimer = null;
+  let sse = null;
+  let isRegisterMode = false;
+  let activeCustomer = null;
+  let currentPaymentMethod = 'UPI';
+
+  // ACTION HOOK ENGINE: Dispatches triggers to merchant website and backend telemetry
+  function emitTriggerHook(action, details = {}) {
+    // 1. Client-side postMessage hook for iframe / popup merchant integrations
+    try {
+      window.parent.postMessage({
+        type: 'YOUPI_PAYMENT_HOOK',
+        action,
+        paymentId: PAYMENT_ID,
+        orderId: state?.orderId,
+        details
+      }, '*');
+    } catch {}
+
+    // 2. Server-side telemetry trigger hook
+    fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/trigger-hook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, details })
+    }).catch(() => {});
+  }
+
+  let activeToken = null;
+
+  const STORAGE_KEY_ACCOUNTS = 'youpi.customer.accounts';
+  const STORAGE_KEY_ACTIVE = 'youpi.customer.activeId';
+
+  function getRememberedAccounts() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_ACCOUNTS);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.slice(0, 2);
+    } catch {
+      return [];
+    }
+  }
+
+  function saveRememberedAccount(cust, token) {
+    if (!cust || !cust.id) return;
+    try {
+      const accounts = getRememberedAccounts();
+      const entry = {
+        id: cust.id,
+        name: cust.name || cust.fullName || 'Customer',
+        email: cust.email || '',
+        mobileNumber: cust.mobileNumber || cust.phoneNumber || '',
+        token: token || null,
+        lastUsed: Date.now()
+      };
+      const idx = accounts.findIndex(a => a.id === cust.id || (cust.email && a.email && a.email.toLowerCase() === cust.email.toLowerCase()) || (cust.mobileNumber && a.mobileNumber && a.mobileNumber === cust.mobileNumber));
+      if (idx >= 0) {
+        accounts[idx] = { ...accounts[idx], ...entry };
+      } else if (accounts.length >= 2) {
+        accounts.sort((a, b) => (a.lastUsed || 0) - (b.lastUsed || 0));
+        accounts[0] = entry;
+      } else {
+        accounts.push(entry);
+      }
+      localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(accounts.slice(0, 2)));
+      localStorage.setItem(STORAGE_KEY_ACTIVE, cust.id);
+    } catch {}
+  }
+
+  function removeRememberedAccount(customerId, e) {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    try {
+      let accounts = getRememberedAccounts();
+      accounts = accounts.filter(a => a.id !== customerId);
+      localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(accounts));
+      if (activeCustomer && activeCustomer.id === customerId) {
+        activeCustomer = null;
+        activeToken = null;
+      }
+      renderSavedAccountsUI();
+    } catch {}
+  }
+
+  function renderSavedAccountsUI() {
+    const accounts = getRememberedAccounts();
+    const container = document.getElementById('preAuthSavedAccountsContainer');
+    const listEl = document.getElementById('savedAccountsList');
+    const badge = document.getElementById('savedAccountCountBadge');
+    const modalList = document.getElementById('modalSavedAccountsList');
+    const modalAddBtn = document.getElementById('modalAddAccountAction');
+
+    if (badge) badge.textContent = `${accounts.length}/2`;
+
+    // 1. Render in Pre-Gateway Auth View
+    if (container && listEl) {
+      if (accounts.length > 0) {
+        container.hidden = false;
+        let html = '';
+        accounts.forEach(acc => {
+          const initial = (acc.name || 'U').charAt(0).toUpperCase();
+          const isActive = activeCustomer && activeCustomer.id === acc.id;
+          html += `
+            <div class="saved-account-card ${isActive ? 'active' : ''}" onclick="handleSelectSavedAccount('${acc.id}')">
+              <div class="saved-account-avatar">${initial}</div>
+              <div class="saved-account-details">
+                <div class="saved-account-name">${escapeHtml(acc.name)}</div>
+                <div class="saved-account-meta">${escapeHtml(acc.email || '')} ${acc.mobileNumber ? '&bull; ' + escapeHtml(acc.mobileNumber) : ''}</div>
+              </div>
+              <div style="display:flex; align-items:center; gap:0.4rem;">
+                <span style="font-size:0.75rem; color:var(--primary); font-weight:800;">Log in &rsaquo;</span>
+                <button type="button" class="btn-remove-account" title="Remove account" onclick="removeRememberedAccount('${acc.id}', event)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+            </div>
+          `;
+        });
+        listEl.innerHTML = html;
+      } else {
+        container.hidden = true;
+        listEl.innerHTML = '';
+        showNewAccountForm();
+      }
+    }
+
+    // 2. Render in Switch Account Modal
+    if (modalList) {
+      let mHtml = '';
+      accounts.forEach(acc => {
+        const initial = (acc.name || 'U').charAt(0).toUpperCase();
+        const isCurrent = activeCustomer && activeCustomer.id === acc.id;
+        mHtml += `
+          <div class="saved-account-card ${isCurrent ? 'active' : ''}" style="cursor:default;">
+            <div class="saved-account-avatar">${initial}</div>
+            <div class="saved-account-details">
+              <div class="saved-account-name">
+                ${escapeHtml(acc.name)}
+                ${isCurrent ? '<span style="font-size:0.65rem; background:#2563eb; color:#fff; padding:0.1rem 0.4rem; border-radius:9999px; margin-left:0.35rem; font-weight:700;">CURRENT</span>' : ''}
+              </div>
+              <div class="saved-account-meta">${escapeHtml(acc.email || '')} ${acc.mobileNumber ? '&bull; ' + escapeHtml(acc.mobileNumber) : ''}</div>
+            </div>
+            <div>
+              ${!isCurrent ? `<button type="button" class="btn btn-primary" style="padding:0.35rem 0.75rem; font-size:0.78rem;" onclick="handleSwitchToAccount('${acc.id}')">Switch &rsaquo;</button>` : `<button type="button" class="btn-remove-account" title="Remove account" onclick="removeRememberedAccount('${acc.id}', event)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`}
+            </div>
+          </div>
+        `;
+      });
+      modalList.innerHTML = mHtml;
+      if (modalAddBtn) {
+        modalAddBtn.hidden = accounts.length >= 2;
+      }
+    }
+  }
+
+  function showNewAccountForm() {
+    const directForms = document.getElementById('preAuthDirectForms');
+    if (directForms) directForms.hidden = false;
+  }
+
+  function switchPreAuthTab(mode) {
+    const loginTabBtn = document.getElementById('tabPreAuthLoginBtn');
+    const registerTabBtn = document.getElementById('tabPreAuthRegisterBtn');
+    const loginPanel = document.getElementById('preAuthLoginPanel');
+    const registerPanel = document.getElementById('preAuthRegisterPanel');
+
+    if (mode === 'login') {
+      loginTabBtn.classList.add('active');
+      registerTabBtn.classList.remove('active');
+      loginPanel.hidden = false;
+      registerPanel.hidden = true;
+    } else {
+      registerTabBtn.classList.add('active');
+      loginTabBtn.classList.remove('active');
+      registerPanel.hidden = false;
+      loginPanel.hidden = true;
+    }
+  }
+
+  async function submitPreAuth(mode) {
+    let endpoint, payload;
+
+    if (mode === 'login') {
+      const identifier = document.getElementById('preAuthIdentifier').value.trim();
+      const password = document.getElementById('preAuthPassword').value;
+      if (!identifier || !password) return alert('Please enter your email or mobile number and password.');
+      endpoint = `${API_BASE}/api/v1/customer/login`;
+      payload = { identifier, password };
+    } else {
+      const name = document.getElementById('preAuthRegName').value.trim();
+      const email = document.getElementById('preAuthRegEmail').value.trim();
+      const mobileNumber = document.getElementById('preAuthRegMobile').value.trim();
+      const password = document.getElementById('preAuthRegPassword').value;
+
+      if (!name) return alert('Please enter your full name.');
+      if (!email || !email.includes('@')) return alert('Please enter a valid email address.');
+      if (!mobileNumber || mobileNumber.length < 10) return alert('Please enter a valid 10-digit mobile number.');
+      if (!password || password.length < 6) return alert('Password must be at least 6 characters.');
+
+      endpoint = `${API_BASE}/api/v1/customer/register`;
+      payload = { name, email, mobileNumber, password };
+    }
+
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (res.ok && data.customer) {
+        activeCustomer = data.customer;
+        activeToken = data.token;
+        saveRememberedAccount(activeCustomer, activeToken);
+
+        // Bind customer identity to payment session (server-authoritative)
+        await fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/bind-customer`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${activeToken}`
+          },
+          body: JSON.stringify({ token: activeToken, customerId: activeCustomer.id })
+        });
+
+        emitTriggerHook('AUTH_COMPLETED', { customerId: activeCustomer.id });
+
+        document.getElementById('preGatewayAuthView').hidden = true;
+        document.getElementById('paymentGatewayInterface').hidden = false;
+        updateCustomerDisplay(activeCustomer);
+        loadState();
+      } else {
+        alert(data.error || 'Authentication failed. Please check your details.');
+      }
+    } catch (e) {
+      alert('Network error during authentication.');
+    }
+  }
+
+  async function handleSelectSavedAccount(accountId) {
+    const accounts = getRememberedAccounts();
+    const account = accounts.find(a => a.id === accountId);
+    if (!account) return;
+
+    if (account.token) {
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/customer/me`, {
+          headers: { 'Authorization': `Bearer ${account.token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          activeCustomer = data.customer;
+          activeToken = account.token;
+          saveRememberedAccount(activeCustomer, activeToken);
+
+          await fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/bind-customer`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${activeToken}`
+            },
+            body: JSON.stringify({ token: activeToken, customerId: activeCustomer.id })
+          });
+
+          emitTriggerHook('AUTH_COMPLETED', { customerId: activeCustomer.id });
+
+          document.getElementById('preGatewayAuthView').hidden = true;
+          document.getElementById('paymentGatewayInterface').hidden = false;
+          updateCustomerDisplay(activeCustomer);
+          loadState();
+          return;
+        }
+      } catch {}
+    }
+
+    // If token is missing or expired: prompt for password
+    showNewAccountForm();
+    switchPreAuthTab('login');
+    document.getElementById('preAuthIdentifier').value = account.email || account.mobileNumber || '';
+    document.getElementById('preAuthPassword').value = '';
+    document.getElementById('preAuthPassword').focus();
+    alert(`Session expired for ${account.name}. Please enter your password to continue.`);
+  }
+
+  function updateCustomerDisplay(cust) {
+    const display = document.getElementById('customerPhoneDisplay');
+    if (display && cust) {
+      const name = cust.name || cust.fullName || 'User';
+      const detail = cust.email || cust.mobileNumber || cust.phoneNumber || '';
+      display.textContent = `${name} (${detail})`;
+    }
+  }
+
+  function toggleAccountMenu(e) {
+    if (e) e.stopPropagation();
+    const popover = document.getElementById('accountMenuPopover');
+    if (!popover) return;
+    const isHidden = popover.hidden;
+    popover.hidden = !isHidden;
+
+    if (isHidden) {
+      const dismissHandler = (evt) => {
+        if (!popover.contains(evt.target) && !document.getElementById('customerChip').contains(evt.target)) {
+          popover.hidden = true;
+          document.removeEventListener('click', dismissHandler);
+        }
+      };
+      setTimeout(() => document.addEventListener('click', dismissHandler), 10);
+    }
+  }
+
+  function openSwitchAccountModal() {
+    const popover = document.getElementById('accountMenuPopover');
+    if (popover) popover.hidden = true;
+
+    // Check if session is already active & immutable
+    const warning = document.getElementById('switchAccountPaymentWarning');
+    const warningName = document.getElementById('switchWarningCustomerName');
+    if (state && (state.status === 'ACTIVE' || state.status === 'PROCESSING') && activeCustomer) {
+      if (warning) warning.hidden = false;
+      if (warningName) warningName.textContent = activeCustomer.name || activeCustomer.fullName || 'Current User';
+    } else {
+      if (warning) warning.hidden = true;
+    }
+
+    renderSavedAccountsUI();
+    document.getElementById('switchAccountModal').hidden = false;
+  }
+
+  function closeSwitchAccountModal() {
+    document.getElementById('switchAccountModal').hidden = true;
+  }
+
+  async function handleSwitchToAccount(targetId) {
+    closeSwitchAccountModal();
+    await handleSelectSavedAccount(targetId);
+  }
+
+  function handleAddAnotherAccountClick() {
+    closeSwitchAccountModal();
+    document.getElementById('paymentGatewayInterface').hidden = true;
+    document.getElementById('preGatewayAuthView').hidden = false;
+    showNewAccountForm();
+    switchPreAuthTab('register');
+  }
+
+  async function handleCustomerLogout() {
+    const popover = document.getElementById('accountMenuPopover');
+    if (popover) popover.hidden = true;
+
+    if (activeToken) {
+      try {
+        await fetch(`${API_BASE}/api/v1/customer/logout`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${activeToken}` }
+        });
+      } catch {}
+    }
+
+    activeCustomer = null;
+    activeToken = null;
+    document.getElementById('paymentGatewayInterface').hidden = true;
+    document.getElementById('preGatewayAuthView').hidden = false;
+    renderSavedAccountsUI();
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]);
+  }
+
+  function switchOptionTab(tabName, fromUser = false) {
+    currentPaymentMethod = tabName;
+    document.querySelectorAll('.option-item').forEach(el => el.classList.remove('active'));
+
+    const upiView = document.getElementById('viewUpiContent');
+    const cashView = document.getElementById('viewCashCounterContent');
+    const cardView = document.getElementById('viewCardCounterContent');
+
+    upiView.hidden = true;
+    cashView.hidden = true;
+    cardView.hidden = true;
+
+    if (tabName === 'UPI') {
+      document.getElementById('tabUpiBtn').classList.add('active');
+      upiView.hidden = false;
+    } else if (tabName === 'CASH_COUNTER') {
+      document.getElementById('tabCashCounterBtn').classList.add('active');
+      cashView.hidden = false;
+    } else if (tabName === 'CARD_COUNTER') {
+      document.getElementById('tabCardCounterBtn').classList.add('active');
+      cardView.hidden = false;
+    }
+
+    emitTriggerHook('METHOD_SWITCHED', { method: tabName });
+
+    if (fromUser) {
+      fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/select-method`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: tabName })
+      }).then(r => r.json()).then(res => {
+        if (res && res.counterInstructions) {
+          document.querySelectorAll('.counterInstructionDisplay').forEach(el => {
+            el.textContent = res.counterInstructions;
+          });
+        }
+      }).catch(() => {});
+    }
+  }
+
+  function hideAllContent() {
+    document.getElementById('viewUpiContent').hidden = true;
+    document.getElementById('viewCashCounterContent').hidden = true;
+    document.getElementById('viewCardCounterContent').hidden = true;
+    document.getElementById('viewProcessingContent').hidden = true;
+    document.getElementById('viewSuccessContent').hidden = true;
+    document.getElementById('viewFailedContent').hidden = true;
+    document.getElementById('viewQueuedContent').hidden = true;
+  }
+
+  function formatTime(totalSec) {
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  }
+
+  function runCountdown(seconds, onTick, onDone) {
+    if (countdownTimer) clearInterval(countdownTimer);
+    let remaining = seconds;
+    onTick(remaining);
+
+    countdownTimer = setInterval(() => {
+      remaining--;
+      if (remaining <= 0) {
+        clearInterval(countdownTimer);
+        onTick(0);
+        if (onDone) onDone();
+      } else {
+        onTick(remaining);
+      }
+    }, 1000);
+  }
+
+  async function loadState() {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/state`);
+      if (!res.ok) return;
+      const data = await res.json();
+      renderState(data);
+    } catch (e) {}
+  }
+
+  function renderState(data) {
+    state = data;
+
+    // 1. UNCONDITIONAL WHITE-LABEL BRANDING & LOGO REFLECTION (Applies immediately)
+    if (data.merchantName) {
+      document.getElementById('sidebarMerchantName').textContent = data.merchantName;
+    }
+    if (data.amount) {
+      document.getElementById('sidebarAmountVal').textContent = data.amount;
+    }
+
+    // Dynamic White-Label Theme Color
+    if (data.branding && data.branding.primaryColor) {
+      document.documentElement.style.setProperty('--primary', data.branding.primaryColor);
+      document.documentElement.style.setProperty('--primary-hover', data.branding.primaryColor);
+    }
+
+    // Dynamic Logo Featuring
+    const logoImg = document.getElementById('sidebarLogoImg');
+    const placeholder = document.getElementById('sidebarLogoPlaceholder');
+    if (data.branding && data.branding.logoUrl) {
+      logoImg.src = data.branding.logoUrl;
+      logoImg.hidden = false;
+      placeholder.hidden = true;
+    } else {
+      logoImg.hidden = true;
+      placeholder.hidden = false;
+    }
+
+    // Dynamic Custom Text Fields
+    if (data.branding && data.branding.footerGuarantee) {
+      const footerEl = document.getElementById('footerGuaranteeText');
+      if (footerEl) footerEl.textContent = data.branding.footerGuarantee;
+    }
+
+    // Payment Method Toggles
+    const enabled = data.enabledMethods || ['UPI', 'CASH_COUNTER', 'CARD_COUNTER'];
+    document.getElementById('tabUpiBtn').hidden = !enabled.includes('UPI');
+    document.getElementById('tabCashCounterBtn').hidden = !enabled.includes('CASH_COUNTER');
+    document.getElementById('tabCardCounterBtn').hidden = !enabled.includes('CARD_COUNTER');
+
+    // Update Pre-Gateway Auth View labels
+    const preOrderId = document.getElementById('preAuthOrderIdDisplay');
+    if (preOrderId && data.orderId) preOrderId.textContent = data.orderId;
+    const preAmt = document.getElementById('preAuthAmountDisplay');
+    if (preAmt && data.amount) preAmt.textContent = `₹${data.amount}`;
+
+    // 2. Pre-Gateway Customer Authentication Gate
+    // Before opening the payment gateway interface, prompt the user with the authentication view
+    const storedAccounts = getRememberedAccounts();
+    const hasCustomer = Boolean(data.customer || activeCustomer);
+
+    if (!hasCustomer) {
+      let candidate = storedAccounts.find(a => a.id === localStorage.getItem(STORAGE_KEY_ACTIVE)) || storedAccounts[0];
+      if (candidate && candidate.token && !activeCustomer) {
+        fetch(`${API_BASE}/api/v1/customer/me`, {
+          headers: { 'Authorization': `Bearer ${candidate.token}` }
+        }).then(r => r.ok ? r.json() : null).then(authData => {
+          if (authData && authData.customer) {
+            activeCustomer = authData.customer;
+            activeToken = candidate.token;
+            saveRememberedAccount(activeCustomer, activeToken);
+            fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/bind-customer`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${activeToken}` },
+              body: JSON.stringify({ token: activeToken, customerId: activeCustomer.id })
+            }).then(() => loadState()).catch(() => {});
+          } else {
+            document.getElementById('preGatewayAuthView').hidden = false;
+            document.getElementById('paymentGatewayInterface').hidden = true;
+            renderSavedAccountsUI();
+          }
+        }).catch(() => {
+          document.getElementById('preGatewayAuthView').hidden = false;
+          document.getElementById('paymentGatewayInterface').hidden = true;
+          renderSavedAccountsUI();
+        });
+        return;
+      }
+
+      document.getElementById('preGatewayAuthView').hidden = false;
+      document.getElementById('paymentGatewayInterface').hidden = true;
+      renderSavedAccountsUI();
+      return;
+    }
+
+    // Customer is authenticated: smoothly reveal payment gateway interface and hide pre-auth card
+    if (data.customer) {
+      activeCustomer = data.customer;
+      updateCustomerDisplay(activeCustomer);
+    }
+    document.getElementById('preGatewayAuthView').hidden = true;
+    document.getElementById('paymentGatewayInterface').hidden = false;
+    document.getElementById('authGateContainer').hidden = true;
+    document.getElementById('paymentOptionsBody').hidden = false;
+
+    // Counter view labels
+    const cashOrderId = document.getElementById('cashOrderIdDisplay');
+    if (cashOrderId) cashOrderId.textContent = data.orderId;
+    const cardOrderId = document.getElementById('cardOrderIdDisplay');
+    if (cardOrderId) cardOrderId.textContent = data.orderId;
+
+    const cashTxnId = document.getElementById('cashTxnIdDisplay');
+    if (cashTxnId) cashTxnId.textContent = data.paymentId || PAYMENT_ID;
+    const cardTxnId = document.getElementById('cardTxnIdDisplay');
+    if (cardTxnId) cardTxnId.textContent = data.paymentId || PAYMENT_ID;
+
+    const cashAmt = document.getElementById('cashAmountDisplay');
+    if (cashAmt) cashAmt.textContent = `₹${data.amount}`;
+    const cardAmt = document.getElementById('cardAmountDisplay');
+    if (cardAmt) cardAmt.textContent = `₹${data.amount}`;
+
+    if (data.branding && data.branding.counterInstructions) {
+      document.querySelectorAll('.counterInstructionDisplay').forEach(el => {
+        el.textContent = data.branding.counterInstructions;
+      });
+    }
+
+    const btnContactHelp = document.getElementById('btnContactHelp');
+    if (btnContactHelp) {
+      btnContactHelp.href = 'javascript:void(0)';
+      btnContactHelp.onclick = (e) => {
+        e.preventDefault();
+        openHelpModal();
+      };
+    }
+
+    if (data.status === 'QUEUED') {
+      hideAllContent();
+      document.getElementById('viewQueuedContent').hidden = false;
+      document.getElementById('queueNumberDisplay').textContent = `#${data.queuePosition}`;
+      runCountdown(data.timeRemainingSeconds, sec => {
+        document.getElementById('queueTimerText').textContent = formatTime(sec);
+      }, () => loadState());
+
+      // Live 1.2s auto-poll so user B promotes the exact instant user A finishes or expires!
+      if (!queuePollTimer) {
+        queuePollTimer = setInterval(() => {
+          loadState();
+        }, 1200);
+      }
+      return;
+    }
+
+    // Stop queue polling once user is out of QUEUED status
+    if (queuePollTimer) {
+      clearInterval(queuePollTimer);
+      queuePollTimer = null;
+    }
+
+    if (data.status === 'ACTIVE') {
+      hideAllContent();
+      const defaultTab = enabled.includes(data.method) ? data.method : (enabled[0] || 'UPI');
+      switchOptionTab(defaultTab);
+
+      // Render 30 UPI Providers with mode-specific behavior
+      const isMerchant = (data.isMerchantEnabled !== undefined) ? Boolean(data.isMerchantEnabled) : (data.upiMode !== 'NON_MERCHANT');
+      const subtextEl = document.getElementById('upiModeSubtext');
+      if (subtextEl) {
+        subtextEl.textContent = isMerchant
+          ? 'Tap an app below to launch payment directly or scan the QR'
+          : 'Scan the QR code or tap an app for step-by-step gallery instructions';
+      }
+
+      renderProvidersList(data.providers || [], isMerchant);
+      loadQrSvg();
+
+      runCountdown(data.timeRemainingSeconds, sec => {
+        document.getElementById('activeTimerText').textContent = `${formatTime(sec)} remaining`;
+      }, () => {
+        document.getElementById('activeTimerText').textContent = 'Session Expired';
+        fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/expire`, { method: 'POST' }).catch(() => {});
+        loadState();
+      });
+      return;
+    }
+
+    if (data.status === 'PROCESSING') {
+      hideAllContent();
+      document.getElementById('viewProcessingContent').hidden = false;
+      runCountdown(data.timeRemainingSeconds, sec => {
+        document.getElementById('procTimerText').textContent = `${sec}s remaining`;
+      }, () => loadState());
+      return;
+    }
+
+    if (data.status === 'SUCCESS') {
+      hideAllContent();
+      document.getElementById('viewSuccessContent').hidden = false;
+      document.getElementById('successAmountVal').textContent = `₹${data.amount}`;
+      emitTriggerHook('PAYMENT_COMPLETED', { amount: data.amount });
+      const btnReturn = document.getElementById('btnReturnStore');
+      if (data.returnUrl) {
+        btnReturn.href = data.returnUrl;
+        setTimeout(() => { window.location.href = data.returnUrl; }, 2000);
+      } else {
+        btnReturn.hidden = true;
+      }
+      return;
+    }
+
+    if (data.status === 'FAILED' || data.status === 'EXPIRED') {
+      hideAllContent();
+      document.getElementById('viewFailedContent').hidden = false;
+      emitTriggerHook('PAYMENT_FAILED', { status: data.status });
+
+      const isExpired = data.status === 'EXPIRED';
+      document.getElementById('failedTitleText').textContent = isExpired ? 'Payment Session Expired' : 'Payment Not Confirmed';
+      document.getElementById('failedDescriptionText').textContent = isExpired
+        ? 'The 5-minute active payment opportunity elapsed before bank verification was initiated. If money was debited from your UPI app, our support team will reconcile your order immediately.'
+        : 'No matching UPI confirmation was detected during the 30-second verification period. If money was debited, our support team will credit you immediately.';
+
+      if (data.returnUrl) {
+        const failUrl = data.returnUrl.replace('/wallet', '/order-failed') + (data.returnUrl.includes('?') ? '&' : '?') + `reason=${data.status}&paymentId=${PAYMENT_ID}`;
+        const btnFail = document.getElementById('btnFailedReturnStore');
+        if (btnFail) {
+          btnFail.href = failUrl;
+          btnFail.hidden = false;
+        }
+      }
+      return;
+    }
+
+    if (data.status === 'CANCELLED') {
+      emitTriggerHook('CANCEL_CONFIRMED');
+      if (data.returnUrl) {
+        const cancelUrl = data.returnUrl.replace('/wallet', '/order-failed') + (data.returnUrl.includes('?') ? '&' : '?') + `reason=CANCELLED&paymentId=${PAYMENT_ID}`;
+        window.location.href = cancelUrl;
+      } else {
+        alert('Payment Cancelled');
+      }
+    }
+  }
+
+  // --- DUAL MODE UPI PROVIDER ENGINE & MODAL SYSTEM ---
+  let cachedProviders = [];
+  let selectedModalProvider = null;
+  let lastQrDownloadTimestamp = 0;
+
+  function isMobileOrTouchContext() {
+    const isCoarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    const isTouchScreen = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    const isMobileViewport = window.innerWidth <= 860;
+    if (window.innerWidth > 860 && !isCoarse && !isTouchScreen) {
+      return false;
+    }
+    return isMobileViewport || isCoarse || isTouchScreen;
+  }
+
+  // STRICT SEPARATION: APP LAUNCH ONLY (No UPI parameters, no upi://pay, no intent://pay)
+  function buildAppLaunchIntent(packageName) {
+    const cleanPkg = String(packageName || '').trim();
+    return `intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=${encodeURIComponent(cleanPkg)};end`;
+  }
+
+  // STRICT SEPARATION: UPI PAYMENT INTENT (Merchant mode only)
+  function buildUpiPaymentIntent(packageName, upiParams) {
+    const cleanPkg = encodeURIComponent(String(packageName || '').trim());
+    const pa = encodeURIComponent(upiParams.pa || '');
+    const pn = encodeURIComponent(upiParams.pn || '');
+    const am = encodeURIComponent(upiParams.am || '');
+    const tn = encodeURIComponent(upiParams.tn || '');
+    return `intent://pay?pa=${pa}&pn=${pn}&am=${am}&tn=${tn}#Intent;scheme=upi;package=${cleanPkg};end`;
+  }
+
+  function handleLaunchAppOnly() {
+    if (!selectedModalProvider || !selectedModalProvider.packageName) {
+      const fallbackEl = document.getElementById('launchFallbackNotice');
+      if (fallbackEl) fallbackEl.hidden = false;
+      return;
+    }
+
+    const launchUri = buildAppLaunchIntent(selectedModalProvider.packageName);
+    try {
+      window.location.href = launchUri;
+      // Graceful fallback if app not installed or browser blocks launch
+      setTimeout(() => {
+        const fallbackEl = document.getElementById('launchFallbackNotice');
+        if (fallbackEl) fallbackEl.hidden = false;
+      }, 1800);
+    } catch (err) {
+      const fallbackEl = document.getElementById('launchFallbackNotice');
+      if (fallbackEl) fallbackEl.hidden = false;
+    }
+  }
+
+  function renderProvidersList(providers, isMerchant) {
+    if (providers && providers.length > 0) {
+      cachedProviders = providers;
+    }
+
+    const isMobile = isMobileOrTouchContext();
+    const providerSec = document.getElementById('providerSection');
+    if (providerSec) {
+      providerSec.hidden = !isMobile;
+    }
+
+    const subtextEl = document.getElementById('upiModeSubtext');
+    if (subtextEl) {
+      subtextEl.textContent = isMobile
+        ? (isMerchant ? 'Tap an app below to launch payment directly or scan the QR' : 'Scan the QR code or tap an app for step-by-step gallery instructions')
+        : 'Complete the payment on your phone';
+    }
+
+    // On desktop, do not populate or activate mobile intent buttons
+    const grid = document.getElementById('providersGrid');
+    if (!grid) return;
+    if (!isMobile) {
+      grid.innerHTML = '';
+      return;
+    }
+
+    if (cachedProviders.length === 0) return;
+
+    grid.innerHTML = cachedProviders.map(p => {
+      const fallbackDataUri = 'data:image/svg+xml;utf8,' + encodeURIComponent(p.svgLogo);
+      return `
+        <button type="button" class="provider-btn" data-id="${p.id}" data-name="${escapeHtml(p.name.toLowerCase())}" data-package="${escapeHtml(p.packageName.toLowerCase())}" onclick="handleProviderClick('${p.id}')">
+          <div class="provider-icon-wrapper" style="border-color:${p.brandColor};">
+            <img src="${p.iconUrl}" alt="${escapeHtml(p.name)}" onerror="this.onerror=null; this.src='${fallbackDataUri}';" />
+          </div>
+          <span class="provider-name-label" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span>
+        </button>
+      `;
+    }).join('');
+  }
+
+  function filterProviders(query) {
+    const q = (query || '').toLowerCase().trim();
+    document.querySelectorAll('.provider-btn').forEach(tile => {
+      const name = tile.getAttribute('data-name') || '';
+      const pkg = tile.getAttribute('data-package') || '';
+      const matches = !q || name.includes(q) || pkg.includes(q);
+      tile.hidden = !matches;
+    });
+  }
+
+  function handleProviderClick(providerId) {
+    const provider = cachedProviders.find(p => p.id === providerId);
+    if (!provider) return;
+
+    const isMerchant = (state?.isMerchantEnabled !== undefined) ? Boolean(state.isMerchantEnabled) : (state?.upiMode !== 'NON_MERCHANT');
+
+    if (isMerchant) {
+      // MODE A: MERCHANT-ENABLED VPA -> Package-targeted UPI payment intent
+      emitTriggerHook('UPI_APP_LAUNCHED', { provider: provider.name, package: provider.packageName });
+      const intentUri = buildUpiPaymentIntent(provider.packageName, {
+        pa: state?.payeeVpa || '',
+        pn: state?.payeeName || '',
+        am: state?.amount || '0.00',
+        tn: state?.orderId || ''
+      });
+      window.location.href = intentUri;
+    } else {
+      // MODE B: NON-MERCHANT VPA -> Auto-download current payment QR, then open modal with App-Only launch
+      selectedModalProvider = provider;
+      emitTriggerHook('NON_MERCHANT_MODAL_OPENED', { provider: provider.name });
+
+      // STEP 1 & 2: Immediately generate and trigger download of CURRENT payment QR
+      triggerDynamicQrDownload();
+
+      // STEP 3: Open provider modal
+      openInstructionalModal(provider);
+    }
+  }
+
+  function handleShowMoreAppsClick() {
+    const isMerchant = (state?.isMerchantEnabled !== undefined) ? Boolean(state.isMerchantEnabled) : (state?.upiMode !== 'NON_MERCHANT');
+
+    if (isMerchant) {
+      // MODE A: MERCHANT-ENABLED VPA -> Launch normal generic dynamic UPI URI
+      emitTriggerHook('SHOW_MORE_APPS_CLICKED');
+      const payeeVpa = encodeURIComponent(state?.payeeVpa || '');
+      const payeeName = encodeURIComponent(state?.payeeName || '');
+      const amount = encodeURIComponent(state?.amount || '0.00');
+      const orderId = encodeURIComponent(state?.orderId || '');
+
+      const genericUpiUri = state?.upiUri || `upi://pay?pa=${payeeVpa}&pn=${payeeName}&am=${amount}&tn=${orderId}`;
+      window.location.href = genericUpiUri;
+    } else {
+      // MODE B: NON-MERCHANT VPA -> Open Generic Instructional Modal + Trigger Auto QR Download
+      selectedModalProvider = { name: 'UPI App', packageName: '' };
+      emitTriggerHook('NON_MERCHANT_GENERIC_MODAL_OPENED');
+      triggerDynamicQrDownload();
+      openInstructionalModal({
+        name: 'UPI App',
+        packageName: '',
+        iconUrl: '',
+        svgLogo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>'
+      });
+    }
+  }
+
+  function openInstructionalModal(provider) {
+    const modal = document.getElementById('instructionalModal');
+    if (!modal) return;
+
+    const appName = provider.name || 'UPI App';
+    document.getElementById('instructionalModalTitle').textContent = `Pay using ${appName}`;
+    document.getElementById('modalAppName').textContent = appName;
+    document.getElementById('instructionAppName').textContent = appName;
+
+    const btnLaunch = document.getElementById('btnLaunchApp');
+    if (btnLaunch) {
+      btnLaunch.textContent = `Launch ${appName}`;
+      btnLaunch.setAttribute('aria-label', `Launch ${appName}`);
+    }
+
+    const fallbackApp = document.getElementById('fallbackAppName');
+    if (fallbackApp) fallbackApp.textContent = appName;
+
+    const fallbackNotice = document.getElementById('launchFallbackNotice');
+    if (fallbackNotice) fallbackNotice.hidden = true;
+
+    const iconImg = document.getElementById('modalAppIcon');
+    if (provider.iconUrl) {
+      iconImg.src = provider.iconUrl;
+      if (provider.svgLogo) {
+        iconImg.onerror = function() {
+          this.onerror = null;
+          this.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(provider.svgLogo);
+        };
+      }
+    } else if (provider.svgLogo) {
+      iconImg.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(provider.svgLogo);
+    }
+
+    modal.hidden = false;
+  }
+
+  function closeInstructionalModal() {
+    const modal = document.getElementById('instructionalModal');
+    if (modal) modal.hidden = true;
+  }
+
+  function submitPaymentDoneFromModal() {
+    closeInstructionalModal();
+    submitPaymentDone();
+  }
+
+  function triggerManualQrDownload() {
+    triggerDynamicQrDownload();
+  }
+
+  function triggerDynamicQrDownload() {
+    const now = Date.now();
+    // Guard against rapid duplicate triggers (within 1.2s)
+    if (now - lastQrDownloadTimestamp < 1200) {
+      return;
+    }
+    lastQrDownloadTimestamp = now;
+
+    const filename = buildQrDownloadFilename();
+    const svgEl = document.querySelector('#qrImageContainer svg');
+
+    if (!svgEl) {
+      // If SVG not yet rendered, fetch directly and download
+      fetch(`/checkout/${PAYMENT_ID}/qr.svg`)
+        .then(r => r.text())
+        .then(svgText => {
+          renderSvgStringToPngAndDownload(svgText, filename);
+        })
+        .catch(() => {});
+      return;
+    }
+
+    const svgData = new XMLSerializer().serializeToString(svgEl);
+    renderSvgStringToPngAndDownload(svgData, filename);
+  }
+
+    if (!svgEl) {
+      // If SVG not yet rendered, fetch directly and download
+      fetch(`/checkout/${PAYMENT_ID}/qr.svg`)
+        .then(r => r.text())
+        .then(svgText => {
+          renderSvgStringToPngAndDownload(svgText, filename);
+        })
+        .catch(() => {});
+      return;
+    }
+
+    const svgData = new XMLSerializer().serializeToString(svgEl);
+    renderSvgStringToPngAndDownload(svgData, filename);
+  }
+
+  function renderSvgStringToPngAndDownload(svgData, filename) {
+    try {
+      const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(svgBlob);
+      const img = new Image();
+
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 600;
+        canvas.height = 600;
+        const ctx = canvas.getContext('2d');
+
+        // Pure white background
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw QR code with safe margins
+        ctx.drawImage(img, 40, 40, 520, 520);
+        URL.revokeObjectURL(url);
+
+        const pngUrl = canvas.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.download = filename;
+        a.href = pngUrl;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      };
+      img.src = url;
+    } catch (e) {
+      console.error('QR download error:', e);
+    }
+  }
+
+  function buildQrDownloadFilename() {
+    const pad = n => n.toString().padStart(2, '0');
+    const now = new Date();
+    const dStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const tStr = `${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+
+    // Format: <upi-id>_<amount>_<date>_<time>.png sanitized for filename safety
+    const rawVpa = (state?.payeeVpa || 'upi').trim().replace(/[/\\?%*:|"<>]/g, '_');
+    const rawAmt = (state?.amount || '0.00').trim().replace(/[/\\?%*:|"<>]/g, '_');
+
+    return `${rawVpa}_${rawAmt}_${dStr}_${tStr}.png`;
+  }
+
+  async function loadQrSvg() {
+    try {
+      const res = await fetch(`/checkout/${PAYMENT_ID}/qr.svg`);
+      if (res.ok) {
+        document.getElementById('qrImageContainer').innerHTML = await res.text();
+      }
+    } catch (e) {}
+  }
+
+  async function submitPaymentDone() {
+    const btn = document.getElementById('btnSubmitPaymentDone');
+    btn.disabled = true;
+    btn.textContent = 'Verifying with Bank...';
+    emitTriggerHook('PAYMENT_DONE_CLICKED');
+
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/payment-done`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        loadState();
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> <span>PAYMENT DONE — CHECK MY PAYMENT</span>';
+      }
+    } catch (e) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> <span>PAYMENT DONE — CHECK MY PAYMENT</span>';
+    }
+  }
+
+  async function cancelPayment() {
+    emitTriggerHook('CANCEL_CLICKED');
+    if (!confirm('Cancel this payment?')) return;
+    try {
+      await fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/cancel`, { method: 'POST' });
+      loadState();
+    } catch (e) {}
+  }
+
+  function connectSse() {
+    if (sse) sse.close();
+    sse = new EventSource(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/stream`);
+    sse.addEventListener('status_change', () => loadState());
+    sse.addEventListener('queue_update', () => loadState());
+    sse.onerror = () => setTimeout(connectSse, 2000);
+  }
+
+  // --- CHECKOUT 3-DOT MENU & LIGHTWEIGHT HELP POPUP ENGINE ---
+  function toggleThreeDotMenu(event) {
+    if (event) event.stopPropagation();
+    const popover = document.getElementById('threeDotMenuPopover');
+    if (!popover) return;
+    popover.hidden = !popover.hidden;
+    if (!popover.hidden) {
+      const closeHandler = (e) => {
+        if (!popover.contains(e.target) && e.target.id !== 'btnThreeDotMenu') {
+          popover.hidden = true;
+          document.removeEventListener('click', closeHandler);
+        }
+      };
+      setTimeout(() => document.addEventListener('click', closeHandler), 0);
+    }
+  }
+
+  function handleMenuPrivacyClick() {
+    const popover = document.getElementById('threeDotMenuPopover');
+    if (popover) popover.hidden = true;
+
+    const privacyUrl = state?.privacyPolicyUrl || state?.branding?.privacyPolicyUrl;
+    if (privacyUrl && String(privacyUrl).trim()) {
+      window.open(String(privacyUrl).trim(), '_blank', 'noopener,noreferrer');
+    } else {
+      alert('Privacy policy is not configured for this merchant.');
+    }
+  }
+
+  function handleMenuHelpClick() {
+    const popover = document.getElementById('threeDotMenuPopover');
+    if (popover) popover.hidden = true;
+    openHelpModal();
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function generateCaseInfo() {
+    const orderId = state?.orderId || 'N/A';
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+    let modeName = 'UPI';
+    if (currentPaymentMethod === 'CASH_COUNTER') modeName = 'Cash at Counter';
+    else if (currentPaymentMethod === 'CARD_COUNTER') modeName = 'Card at Counter';
+    else if (currentPaymentMethod) modeName = currentPaymentMethod;
+
+    const amountStr = state?.amount ? `₹${state.amount}` : 'N/A';
+    const name = activeCustomer?.fullName || state?.customer?.fullName || 'Customer';
+    const mobile = activeCustomer?.phoneNumber || state?.customer?.phoneNumber || 'N/A';
+    const email = activeCustomer?.email || state?.customer?.email || 'N/A';
+
+    const lines = [
+      `Order ID: ${orderId}`,
+      `Date: ${dateStr}`,
+      `Time: ${timeStr}`,
+      `Payment Mode: ${modeName}`,
+      `Amount: ${amountStr}`,
+      `Name: ${name}`,
+      `Mobile: ${mobile}`,
+      `Email: ${email}`
+    ];
+
+    return {
+      orderId,
+      date: dateStr,
+      time: timeStr,
+      mode: modeName,
+      amount: amountStr,
+      name,
+      mobile,
+      email,
+      text: lines.join('\n')
+    };
+  }
+
+  function copyCaseInfo() {
+    const info = generateCaseInfo();
+    const text = info.text;
+    const copyText = document.getElementById('copyCaseText');
+    const copyBtn = document.getElementById('btnCopyCaseInfo');
+
+    function onCopied() {
+      if (copyText) copyText.textContent = 'Copied';
+      if (copyBtn) copyBtn.classList.add('copied');
+      setTimeout(() => {
+        if (copyText) copyText.textContent = 'Copy';
+        if (copyBtn) copyBtn.classList.remove('copied');
+      }, 2000);
+    }
+
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      navigator.clipboard.writeText(text).then(onCopied).catch(() => {
+        fallbackCopyText(text, onCopied);
+      });
+    } else {
+      fallbackCopyText(text, onCopied);
+    }
+  }
+
+  function fallbackCopyText(text, cb) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      if (cb) cb();
+    } catch (e) {
+      console.error('Fallback copy failed', e);
+    }
+  }
+
+  function launchMailto(email) {
+    const info = generateCaseInfo();
+    const subject = encodeURIComponent('Payment Receipt');
+    const body = encodeURIComponent(info.text);
+    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${subject}&body=${body}`;
+  }
+
+  function openHelpModal() {
+    const modal = document.getElementById('helpModal');
+    if (!modal) return;
+
+    // Render merchant support emails
+    const emailsContainer = document.getElementById('helpModalEmailsContainer');
+    const rawEmails = state?.supportEmails || state?.branding?.supportEmails || [];
+    const emails = Array.isArray(rawEmails) ? rawEmails : (typeof rawEmails === 'string' ? rawEmails.split(/[,\n]+/).map(s => s.trim()).filter(Boolean) : []);
+
+    if (emails.length > 0) {
+      emailsContainer.innerHTML = emails.map(e => `
+        <a href="javascript:void(0)" onclick="launchMailto('${encodeURIComponent(e)}')" class="contact-card-link">
+          <span style="display:flex; align-items:center; gap:0.45rem;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            <span>${escapeHtml(e)}</span>
+          </span>
+          <span style="font-size:0.75rem; color:var(--text-muted); display:flex; align-items:center; gap:0.25rem;">
+            <span>Click to Email</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </span>
+        </a>
+      `).join('');
+    } else {
+      emailsContainer.innerHTML = '<div style="font-size:0.82rem; color:var(--text-muted); font-style:italic;">No support email provided by merchant.</div>';
+    }
+
+    // Render merchant support mobile numbers
+    const mobilesContainer = document.getElementById('helpModalMobilesContainer');
+    const rawMobiles = state?.supportMobiles || state?.branding?.supportMobiles || [];
+    const mobiles = Array.isArray(rawMobiles) ? rawMobiles : (typeof rawMobiles === 'string' ? rawMobiles.split(/[,\n]+/).map(s => s.trim()).filter(Boolean) : []);
+
+    if (mobiles.length > 0) {
+      mobilesContainer.innerHTML = mobiles.map(m => `
+        <div class="contact-card-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+          <span>${escapeHtml(m)}</span>
+        </div>
+      `).join('');
+    } else {
+      mobilesContainer.innerHTML = '<div style="font-size:0.82rem; color:var(--text-muted); font-style:italic;">No support phone provided by merchant.</div>';
+    }
+
+    // Render dynamic current payment case information
+    const caseInfo = generateCaseInfo();
+    const caseInfoText = document.getElementById('helpModalCaseInfoText');
+    if (caseInfoText) {
+      caseInfoText.textContent = caseInfo.text;
+    }
+
+    modal.hidden = false;
+  }
+
+  function closeHelpModal() {
+    const modal = document.getElementById('helpModal');
+    if (modal) modal.hidden = true;
+  }
+
+  renderSavedAccountsUI();
+  loadState();
+  connectSse();
+</script>
+
+</body>
+</html>

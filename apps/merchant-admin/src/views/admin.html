@@ -1,0 +1,1208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Merchant Portal & Live Operations — YOUPI PG</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --text-muted: #cbd5e1;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+
+    header {
+      background: #0b1120;
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 1.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand { font-size: 1.25rem; font-weight: 800; color: #ffffff; display: flex; align-items: center; gap: 0.6rem; }
+    .live-pulse-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34d399;
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+
+    .static-indicator {
+      color: #10b981;
+      font-size: 0.75rem;
+      line-height: 1;
+    }
+
+    .nav-bar {
+      background: #1e293b;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 0.5rem;
+      padding: 0 1.75rem;
+      overflow-x: auto;
+    }
+
+    .nav-btn {
+      padding: 0.85rem 1.25rem;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      font-weight: 700;
+      color: var(--text-muted);
+      border-bottom: 2px solid transparent;
+      white-space: nowrap;
+      transition: all 0.2s;
+      font-size: 0.88rem;
+    }
+    .nav-btn.active { color: #60a5fa; border-bottom-color: #60a5fa; }
+
+    main { padding: 1.75rem; max-width: 1400px; width: 100%; margin: 0 auto; flex: 1; }
+
+    /* Top KPI Cards */
+    .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .kpi-box { background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.75rem; padding: 1.25rem; }
+    .kpi-title { font-size: 0.8rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; }
+    .kpi-value { font-size: 1.85rem; font-weight: 800; margin-top: 0.35rem; }
+
+    /* Cards */
+    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1.5rem; }
+    .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; }
+    .card-heading { font-size: 1.1rem; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 0.5rem; }
+
+    /* Table Styles */
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th { text-align: left; padding: 0.75rem 1rem; background: #0b1120; color: var(--text-muted); font-weight: 700; border-bottom: 1px solid var(--border); }
+    td { padding: 0.85rem 1rem; border-bottom: 1px solid var(--border); color: #f1f5f9; }
+
+    .badge { padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; }
+    .badge-success { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-danger { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .badge-warning { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .badge-info { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+
+    /* Buttons */
+    .btn { padding: 0.5rem 1rem; border-radius: 0.5rem; border: none; font-weight: 700; cursor: pointer; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.4rem; text-decoration: none; }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-success { background: #047857; color: #fff; }
+    .btn-success:hover { background: #065f46; }
+    .btn-secondary { background: #334155; color: #fff; }
+    .btn-secondary:hover { background: #475569; }
+
+    /* Queue Visual Grid */
+    .queue-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem; }
+    .slot-card { border: 2px dashed var(--border); border-radius: 0.75rem; padding: 1.25rem; background: #0b1120; text-align: center; }
+    .slot-card.busy-active { border-color: #38bdf8; background: rgba(56, 189, 248, 0.05); }
+    .slot-card.busy-proc { border-color: #f59e0b; background: rgba(245, 158, 11, 0.05); }
+
+    /* Modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; padding: 1rem; z-index: 50; }
+    .modal-box { background: var(--card-bg); max-width: 480px; width: 100%; border-radius: 1rem; padding: 1.75rem; border: 1px solid var(--border); }
+
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span>🛡️ YOUPI PG</span>
+    <span style="font-size:0.85rem; color:var(--text-muted); font-weight:400;">| Merchant Operations Portal</span>
+  </div>
+  <div style="display:flex; align-items:center; gap:1rem;">
+    <div class="live-pulse-badge">
+      <span class="static-indicator">●</span>
+      <span>Live polling (2.5s)</span>
+    </div>
+    <span class="badge badge-info" id="accountVpaDisplay">VPA: merchant@upi</span>
+  </div>
+</header>
+
+<nav class="nav-bar">
+  <button class="nav-btn active" onclick="showTab('tabDashboard')">📊 Live Operations & Queue</button>
+  <button class="nav-btn" onclick="showTab('tabCounterDesk')">🏪 Cash & Card Counter Desk</button>
+  <button class="nav-btn" onclick="showTab('tabObservers')">📡 Payment Observers (SMS & Gmail)</button>
+  <button class="nav-btn" onclick="showTab('tabPayments')">💳 Transactions</button>
+  <button class="nav-btn" onclick="showTab('tabSettings')">⚙️ Webhook & UPI Settings</button>
+</nav>
+
+<main>
+  <!-- TAB 1: LIVE OPERATIONS & QUEUE -->
+  <section id="tabDashboard">
+    <div class="kpi-row">
+      <div class="kpi-box">
+        <div class="kpi-title">Today's Processed Volume</div>
+        <div class="kpi-value" id="kpiVol" style="color:#34d399;">₹0.00</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-title">Successful Payments</div>
+        <div class="kpi-value" id="kpiSuccessCount" style="color:#38bdf8;">0</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-title">Active In Waiting Queue</div>
+        <div class="kpi-value" id="kpiQueueCount" style="color:#fbbf24;">0</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-title">Pending Counter Payments</div>
+        <div class="kpi-value" id="kpiPendingCounterCount" style="color:#f87171;">0</div>
+      </div>
+    </div>
+
+    <!-- Verification Standards Metric Row (2-Layer Engine: SMS + Gmail) -->
+    <div class="kpi-row" style="margin-top:-0.5rem; margin-bottom:1.5rem;">
+      <div class="kpi-box">
+        <div class="kpi-title">Single Verified (1 Source)</div>
+        <div class="kpi-value" id="kpiSingleVerify" style="color:#60a5fa; font-size:1.5rem;">0</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-title">Dual Verified (2 Sources: SMS + Gmail)</div>
+        <div class="kpi-value" id="kpiDualVerify" style="color:#10b981; font-size:1.5rem;">0</div>
+      </div>
+    </div>
+
+    <!-- Real-Time Slot Inspector -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-heading">🔴 Real-Time Receiving Account Slot Ownership (UPI Invariant)</div>
+        <button class="btn btn-secondary" style="font-size:0.75rem;" onclick="fetchLiveData()">Force Refresh</button>
+      </div>
+
+      <div class="queue-grid">
+        <!-- Active 5:00 Slot -->
+        <div class="slot-card" id="slotActiveBox">
+          <div style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">Active Slot (5-Minute Window)</div>
+          <div id="slotActiveContent" style="padding:1rem 0; color:var(--text-muted);">
+            No customer actively checking out right now.
+          </div>
+        </div>
+
+        <!-- Processing 30s Slot -->
+        <div class="slot-card" id="slotProcBox">
+          <div style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">Processing Slot (30s Verification Window)</div>
+          <div id="slotProcContent" style="padding:1rem 0; color:var(--text-muted);">
+            No payment in bank verification.
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Queue Table -->
+      <h4 style="margin:1rem 0 0.5rem 0; color:var(--text-muted); font-size:0.9rem;">Waiting Payment Queue (Exclusive UPI Slot Pipeline)</h4>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Position</th>
+              <th>Order ID</th>
+              <th>Amount</th>
+              <th>Status</th>
+              <th>Queued Time</th>
+            </tr>
+          </thead>
+          <tbody id="queueTableBody">
+            <tr><td colspan="5" style="text-align:center; color:var(--text-muted);">Waiting queue is empty.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 2: LIVE COUNTER DESK -->
+  <section id="tabCounterDesk" hidden>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-heading">🏪 Live Counter Payment Requests (Cash & Card at Till)</div>
+        <span style="font-size:0.8rem; color:var(--text-muted);">Operator ID: <strong id="operatorDisplay">staff_till_1</strong></span>
+      </div>
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.25rem;">
+        Customers paying at the counter are displayed below in real-time. Verify physical cash received or POS machine slip, then click Confirm. Does not block digital UPI queue.
+      </p>
+
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Order ID</th>
+              <th>Payment ID</th>
+              <th>Amount</th>
+              <th>Method</th>
+              <th>Requested At</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="counterTableBody">
+            <tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No pending counter payments right now.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 3: OBSERVERS & AUTOMATORS (2-Layer Engine: SMS + Gmail) -->
+  <section id="tabObservers" hidden>
+    <div class="card">
+      <div class="card-heading" style="margin-bottom:1.25rem;">📡 Payment Observation Channels (2-Layer: SMS + Gmail)</div>
+
+      <!-- Grid of 2 Automated Observers -->
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:1.25rem; margin-bottom:1.5rem;">
+        <!-- 1. Google Messages Web Automator -->
+        <div style="background:#0b1120; border:1px solid var(--border); border-radius:0.75rem; padding:1.25rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+            <strong>Google Messages (SMS)</strong>
+            <span class="badge badge-info" id="smsAutoBadge">STANDBY</span>
+          </div>
+          <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.5; margin-bottom:1rem;">
+            Automated browser session captures incoming bank SMS credit alerts.
+          </p>
+          <button class="btn btn-primary" style="width:100%;" onclick="launchGoogleMessagesPairing()">
+            📲 Launch Google Messages Pairing (Chrome)
+          </button>
+        </div>
+
+        <!-- 2. Gmail Inbox Automator -->
+        <div style="background:#0b1120; border:1px solid var(--border); border-radius:0.75rem; padding:1.25rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+            <strong>Gmail Inbox Observer</strong>
+            <span class="badge badge-info" id="gmailAutoBadge">STANDBY</span>
+          </div>
+          <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.5; margin-bottom:1rem;">
+            Automated browser / OAuth session captures bank payment credit emails.
+          </p>
+          <button class="btn btn-primary" style="width:100%;" onclick="launchGmailLogin()">
+            🔑 Connect Gmail Account (Chrome)
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 4: TRANSACTIONS -->
+  <section id="tabPayments" hidden>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-heading">Payment Transactions Ledger</div>
+        <button class="btn btn-secondary" onclick="fetchPaymentsLedger()">Refresh</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Order ID</th>
+              <th>Payment ID</th>
+              <th>Amount</th>
+              <th>Method</th>
+              <th>Status</th>
+              <th>Verification Tier</th>
+              <th>Channel Sources</th>
+              <th>Created At</th>
+              <th>Completed At</th>
+            </tr>
+          </thead>
+          <tbody id="paymentsLedgerTbody">
+            <tr><td colspan="9" style="text-align:center;">Loading transactions...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 5: SETTINGS -->
+  <section id="tabSettings" hidden>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;">
+      <!-- Card 1: Receiving UPI Account (Multiple VPAs Suite) -->
+      <div class="card" style="grid-column: span 2;">
+        <div class="card-header" style="margin-bottom:1rem;">
+          <div>
+            <div class="card-heading">⚡ Receiving UPI Accounts &amp; Multiple VPAs</div>
+            <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.5; margin-top:0.25rem;">
+              Manage your business receiving VPAs. You can configure multiple UPI accounts. <strong>Only ONE VPA can be active at a time</strong> for gateway payments. Activating a VPA automatically deactivates all others.
+            </p>
+          </div>
+          <span class="badge badge-success" id="activeVpaModeBadge" style="font-size:0.8rem; padding:0.4rem 0.75rem;">
+            Active Mode: MERCHANT
+          </span>
+        </div>
+
+        <!-- Current Active VPA Callout Box -->
+        <div id="activeVpaCallout" style="background:#0f172a; border:1px solid var(--border); border-radius:0.75rem; padding:1rem 1.25rem; margin-bottom:1.5rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem;">
+          <div>
+            <div style="font-size:0.75rem; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Currently Active Gateway VPA</div>
+            <div style="font-size:1.25rem; font-weight:900; color:#38bdf8; margin:0.2rem 0;" id="activeVpaIdDisplay">Loading active VPA...</div>
+            <div style="font-size:0.82rem; color:var(--text-muted);" id="activeVpaPayeeDisplay">Payee: -</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.3rem;">Gateway Checkout Interaction</div>
+            <div id="activeVpaInteractionDesc" style="font-size:0.85rem; font-weight:700; color:#34d399;">
+              ✓ Direct UPI Apps Intent &amp; QR Code
+            </div>
+          </div>
+        </div>
+
+        <!-- Add New VPA Section -->
+        <div style="background:#0b1120; border:1px solid var(--border); border-radius:0.75rem; padding:1.25rem; margin-bottom:1.5rem;">
+          <h4 style="margin-bottom:0.75rem; font-size:0.95rem; color:#f1f5f9;">➕ Add New Receiving UPI VPA</h4>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1rem;">
+            <div>
+              <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.3rem;">UPI ID / VPA</label>
+              <input id="newUpiVpa" type="text" placeholder="e.g. 9876543210@axl or merchant@okhdfcbank" style="width:100%; padding:0.6rem; background:#0f172a; border:1px solid var(--border); border-radius:0.5rem; color:#fff; font-size:0.88rem;" />
+            </div>
+            <div>
+              <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.3rem;">Payee / Merchant Display Name</label>
+              <input id="newUpiPayee" type="text" placeholder="e.g. Demo Store Merchant or Store Name" style="width:100%; padding:0.6rem; background:#0f172a; border:1px solid var(--border); border-radius:0.5rem; color:#fff; font-size:0.88rem;" />
+            </div>
+          </div>
+
+          <!-- Merchant Account Type Option -->
+          <div style="margin-bottom:1rem; background:#0f172a; border:1px solid var(--border); border-radius:0.5rem; padding:0.85rem;">
+            <div style="font-size:0.85rem; font-weight:700; color:#f1f5f9; margin-bottom:0.5rem;">
+              Is this a merchant-enabled UPI account?
+            </div>
+            <div style="display:flex; flex-direction:column; gap:0.5rem;">
+              <label style="display:flex; align-items:flex-start; gap:0.6rem; cursor:pointer; font-size:0.85rem;">
+                <input type="radio" name="newUpiType" value="merchant" checked style="margin-top:0.2rem;" />
+                <div>
+                  <strong style="color:#38bdf8;">YES — Merchant UPI ID</strong>
+                  <div style="font-size:0.78rem; color:var(--text-muted);">
+                    Enables full merchant checkout: QR code + direct Android intent application buttons (PhonePe, GPay, Paytm, etc.) + dynamic deep link.
+                  </div>
+                </div>
+              </label>
+              <label style="display:flex; align-items:flex-start; gap:0.6rem; cursor:pointer; font-size:0.85rem;">
+                <input type="radio" name="newUpiType" value="personal" style="margin-top:0.2rem;" />
+                <div>
+                  <strong style="color:#fbbf24;">NO — Non-Merchant / Personal UPI ID</strong>
+                  <div style="font-size:0.78rem; color:var(--text-muted);">
+                    Enables non-merchant flow: QR code display + clicking apps triggers automatic QR download &amp; opens app-specific gallery upload instructions.
+                  </div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Platform Compatibility / UPI ID Recommendation Notice -->
+          <div class="vpa-recommendation-box" style="margin-bottom:1rem; padding:0.85rem 1rem; background:rgba(37,99,235,0.08); border:1px solid rgba(37,99,235,0.25); border-radius:0.5rem; display:flex; gap:0.75rem; align-items:flex-start;">
+            <div style="color:#38bdf8; flex-shrink:0; margin-top:0.15rem;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="16" x2="12" y2="12"/>
+                <line x1="12" y1="8" x2="12.01" y2="8"/>
+              </svg>
+            </div>
+            <div>
+              <div style="font-weight:700; font-size:0.88rem; color:#f1f5f9; margin-bottom:0.25rem;">
+                Use merchant UPI IDs for a smoother checkout experience.
+              </div>
+              <div style="font-size:0.8rem; color:var(--text-muted); line-height:1.45;">
+                Merchant UPI IDs are recommended for checkout flows that use merchant payment/intent functionality. Personal or non-merchant UPI IDs may not support the same seamless checkout experience across UPI apps.
+              </div>
+              <div style="font-size:0.75rem; color:#94a3b8; margin-top:0.35rem; line-height:1.4;">
+                For best compatibility, configure a UPI ID issued for your merchant account by your acquiring bank/UPI provider.
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+            <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; font-weight:600; cursor:pointer;">
+              <input type="checkbox" id="newUpiActivateNow" checked style="width:16px; height:16px;" />
+              <span>Set as active VPA for customer checkout immediately</span>
+            </label>
+            <button class="btn btn-primary" style="width:auto; padding:0.6rem 1.25rem;" onclick="addNewUpiAccount()">
+              ➕ Save &amp; Add UPI Account
+            </button>
+          </div>
+        </div>
+
+        <!-- Saved VPAs Table -->
+        <h4 style="margin-bottom:0.75rem; font-size:0.95rem; color:#f1f5f9;">📋 Saved Receiving UPI Accounts</h4>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>UPI ID (VPA)</th>
+                <th>Payee Name</th>
+                <th>Account Type</th>
+                <th>Gateway Status</th>
+                <th>Slot State</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="upiAccountsTableBody">
+              <tr><td colspan="7" style="text-align:center; color:var(--text-muted);">Loading UPI accounts...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Card 2: Payment Modality Toggles -->
+      <div class="card">
+        <div class="card-heading" style="margin-bottom:1rem;">🎛️ Payment Modality Toggles</div>
+        <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.5; margin-bottom:1.25rem;">
+          Enable or disable specific payment options on your checkout portal.
+        </p>
+
+        <div style="display:flex; flex-direction:column; gap:0.75rem; margin-bottom:1.5rem;">
+          <label style="display:flex; align-items:center; gap:0.6rem; font-size:0.9rem; font-weight:600; cursor:pointer;">
+            <input type="checkbox" id="toggleMethodUpi" checked style="width:18px; height:18px;" />
+            <span>Enable Digital UPI Payments (QR & Apps)</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:0.6rem; font-size:0.9rem; font-weight:600; cursor:pointer;">
+            <input type="checkbox" id="toggleMethodCash" checked style="width:18px; height:18px;" />
+            <span>Enable Cash at Counter (Physical Till)</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:0.6rem; font-size:0.9rem; font-weight:600; cursor:pointer;">
+            <input type="checkbox" id="toggleMethodCard" checked style="width:18px; height:18px;" />
+            <span>Enable Card at Counter (Physical POS)</span>
+          </label>
+        </div>
+
+        <button class="btn btn-primary" style="width:100%;" onclick="saveMerchantBrandingAndToggles()">
+          💾 Save Payment Toggles
+        </button>
+      </div>
+    </div>
+
+    <!-- Card 3: White-Label Branding & Webhooks -->
+    <div class="card" style="margin-top:1.5rem;">
+      <div class="card-heading" style="margin-bottom:1rem;">🎨 White-Label Branding & Webhook Integration</div>
+      <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.5; margin-bottom:1.25rem;">
+        Customize every visual and textual element of your payment gateway. Changes reflect instantly on your customer checkout page.
+      </p>
+
+      <!-- Row 1: Brand Name & Logo -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.25rem; margin-bottom:1.25rem;">
+        <div>
+          <label style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.35rem;">Merchant Brand / Store Name</label>
+          <input id="settingBusinessName" type="text" placeholder="e.g. MSPCARE or GamerVault" style="width:100%; padding:0.65rem; background:#0b1120; border:1px solid var(--border); border-radius:0.5rem; color:#fff;" />
+        </div>
+        <div>
+          <label style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.35rem;">Brand Logo Image URL (Featuring in Checkout)</label>
+          <input id="settingLogoUrl" type="url" placeholder="https://yourbrand.com/logo.png" style="width:100%; padding:0.65rem; background:#0b1120; border:1px solid var(--border); border-radius:0.5rem; color:#fff;" />
+        </div>
+      </div>
+
+      <!-- Row 2: App Name & Color -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.25rem; margin-bottom:1.25rem;">
+        <div>
+          <label style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.35rem;">Gateway Title / App Name</label>
+          <input id="settingAppName" type="text" value="YOUPI PG" style="width:100%; padding:0.65rem; background:#0b1120; border:1px solid var(--border); border-radius:0.5rem; color:#fff;" />
+        </div>
+        <div>
+          <label style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.35rem;">Primary Brand Color (Hex)</label>
+          <div style="display:flex; gap:0.5rem;">
+            <input id="settingColorPicker" type="color" value="#2563eb" style="width:45px; height:42px; border:none; background:transparent; cursor:pointer;" onchange="document.getElementById('settingPrimaryColor').value = this.value" />
+            <input id="settingPrimaryColor" type="text" value="#2563eb" style="flex:1; padding:0.65rem; background:#0b1120; border:1px solid var(--border); border-radius:0.5rem; color:#fff;" onchange="document.getElementById('settingColorPicker').value = this.value" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 3: Custom Text Fields -->
+      <div style="display:grid; grid-template-columns:1fr; gap:1.25rem; margin-bottom:1.25rem;">
+        <div>
+          <label style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.35rem;">Custom Security / Assurance Banner</label>
+          <input id="settingSidebarNotice" type="text" placeholder="Fast &amp; Secure 256-Bit Encrypted Payments" style="width:100%; padding:0.65rem; background:#0b1120; border:1px solid var(--border); border-radius:0.5rem; color:#fff;" />
+        </div>
+      </div>
+
+      <!-- Row 4: Custom Footer Guarantee & Webhook -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.25rem; margin-bottom:1.25rem;">
+        <div>
+          <label style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.35rem;">Custom Footer Security Text</label>
+          <input id="settingFooterGuarantee" type="text" placeholder="Secured by YOUPI PG 256-Bit Encryption" style="width:100%; padding:0.65rem; background:#0b1120; border:1px solid var(--border); border-radius:0.5rem; color:#fff;" />
+        </div>
+        <div>
+          <label style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.35rem;">Webhook Destination URL</label>
+          <input id="settingWebhookUrl" type="text" placeholder="https://yourstore.com/api/payment/webhook" style="width:100%; padding:0.65rem; background:#0b1120; border:1px solid var(--border); border-radius:0.5rem; color:#fff;" />
+        </div>
+      </div>
+
+      <!-- Row 5: Custom Counter Desk Instructions -->
+      <div style="margin-bottom:1.25rem;">
+        <label style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.35rem;">Custom Counter Desk Instructions (Shown on Cash & Card Screen)</label>
+        <input id="settingCounterInstructions" type="text" placeholder="e.g. Please proceed to Billing Counter #2 and present this screen to Cashier" style="width:100%; padding:0.65rem; background:#0b1120; border:1px solid var(--border); border-radius:0.5rem; color:#fff;" />
+      </div>
+
+      <!-- Row 6: Customer Support Contacts (Checkout 3-Dot Menu & Help Popup) -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.25rem; margin-bottom:1.25rem;">
+        <div>
+          <label style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.35rem;">Help / Support Email Addresses</label>
+          <input id="settingSupportEmails" type="text" placeholder="support@brand.com, help@brand.com" style="width:100%; padding:0.65rem; background:#0b1120; border:1px solid var(--border); border-radius:0.5rem; color:#fff;" />
+          <span style="font-size:0.75rem; color:var(--text-muted); display:block; margin-top:0.25rem;">One or multiple emails (comma separated). Clickable mailto in checkout Help popup.</span>
+        </div>
+        <div>
+          <label style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.35rem;">Help / Support Mobile Numbers</label>
+          <input id="settingSupportMobiles" type="text" placeholder="+91 9876543210, +91 9123456789" style="width:100%; padding:0.65rem; background:#0b1120; border:1px solid var(--border); border-radius:0.5rem; color:#fff;" />
+          <span style="font-size:0.75rem; color:var(--text-muted); display:block; margin-top:0.25rem;">One or multiple numbers (comma separated). Displayed in checkout Help popup.</span>
+        </div>
+      </div>
+
+      <!-- Row 7: Privacy Policy URL -->
+      <div style="margin-bottom:1.25rem;">
+        <label style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.35rem;">Privacy Policy Page Link (URL)</label>
+        <input id="settingPrivacyPolicyUrl" type="url" placeholder="https://yourbrand.com/privacy-policy" style="width:100%; padding:0.65rem; background:#0b1120; border:1px solid var(--border); border-radius:0.5rem; color:#fff;" />
+        <span style="font-size:0.75rem; color:var(--text-muted); display:block; margin-top:0.25rem;">Merchant-configured Privacy Policy link. Opens in a new browser tab from checkout.</span>
+      </div>
+
+      <div style="margin-bottom:1.5rem;">
+        <label style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:0.35rem;">Webhook Secret (HMAC-SHA256 Signing)</label>
+        <input id="settingWebhookSecret" type="text" readonly style="width:100%; padding:0.65rem; background:#0f172a; border:1px solid var(--border); border-radius:0.5rem; color:#94a3b8;" />
+      </div>
+
+      <button class="btn btn-primary" onclick="saveMerchantBrandingAndToggles()">
+        💾 Save & Apply White-Label Settings
+      </button>
+    </div>
+  </section>
+</main>
+
+<script>
+  const API_BASE = "{{API_BASE_URL}}";
+  let pollingTimer = null;
+  let settingsLoaded = false;
+
+  function showTab(tabId) {
+    const tabs = ['tabDashboard', 'tabCounterDesk', 'tabObservers', 'tabPayments', 'tabSettings'];
+    tabs.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.hidden = (id !== tabId);
+    });
+
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+
+    if (tabId === 'tabDashboard') fetchLiveData();
+    if (tabId === 'tabCounterDesk') fetchCounterPayments();
+    if (tabId === 'tabObservers') fetchObserversStatus();
+    if (tabId === 'tabPayments') fetchPaymentsLedger();
+    if (tabId === 'tabSettings') fetchGatewaySettings();
+  }
+
+  // Live auto-polling function (every 2.5s)
+  async function fetchLiveData() {
+    try {
+      // 1. Fetch Queue & Slot Status
+      const qRes = await fetch(`${API_BASE}/api/v1/admin/queue`);
+      const qData = await qRes.json();
+
+      renderSlotActive(qData.currentSlot);
+      renderSlotProcessing(qData.currentSlot);
+      renderQueueTable(qData.queue || []);
+
+      // 2. Fetch Payments Ledger for KPI stats
+      const pRes = await fetch(`${API_BASE}/api/v1/admin/payments`);
+      const pData = await pRes.json();
+      updateKpis(pData.payments || [], qData.queue || []);
+
+      // 3. Also refresh counter desk if visible
+      if (!document.getElementById('tabCounterDesk').hidden) {
+        renderCounterDesk(pData.payments || []);
+      }
+
+      // 4. Also refresh observers status
+      fetchObserversStatus();
+    } catch (e) {
+      console.error('Polling error:', e);
+    }
+  }
+
+  function renderSlotActive(currentSlot) {
+    const box = document.getElementById('slotActiveBox');
+    const content = document.getElementById('slotActiveContent');
+
+    if (currentSlot && currentSlot.status === 'ACTIVE') {
+      box.className = 'slot-card busy-active';
+      const remainingSec = currentSlot.expiresAt ? Math.max(0, Math.ceil((new Date(currentSlot.expiresAt).getTime() - Date.now()) / 1000)) : 0;
+      const m = Math.floor(remainingSec / 60);
+      const s = remainingSec % 60;
+
+      content.innerHTML = `
+        <div style="font-size:1.75rem; font-weight:800; color:#38bdf8;">₹${(Number(currentSlot.amountPaise)/100).toFixed(2)}</div>
+        <div style="font-weight:700; margin:0.35rem 0;">Order #${currentSlot.orderId}</div>
+        <div class="badge badge-info">ACTIVE (⏱ ${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')} remaining)</div>
+      `;
+    } else {
+      box.className = 'slot-card';
+      content.innerHTML = '<div style="color:var(--text-muted); padding:1rem 0;">No customer actively checking out.</div>';
+    }
+  }
+
+  function renderSlotProcessing(currentSlot) {
+    const box = document.getElementById('slotProcBox');
+    const content = document.getElementById('slotProcContent');
+
+    if (currentSlot && currentSlot.status === 'PROCESSING') {
+      box.className = 'slot-card busy-proc';
+      const remainingSec = currentSlot.processingExpiresAt ? Math.max(0, Math.ceil((new Date(currentSlot.processingExpiresAt).getTime() - Date.now()) / 1000)) : 0;
+
+      content.innerHTML = `
+        <div style="font-size:1.75rem; font-weight:800; color:#fbbf24;">₹${(Number(currentSlot.amountPaise)/100).toFixed(2)}</div>
+        <div style="font-weight:700; margin:0.35rem 0;">Order #${currentSlot.orderId}</div>
+        <div class="badge badge-warning">VERIFYING (⏳ ${remainingSec}s remaining)</div>
+      `;
+    } else {
+      box.className = 'slot-card';
+      content.innerHTML = '<div style="color:var(--text-muted); padding:1rem 0;">No payment in verification.</div>';
+    }
+  }
+
+  function renderQueueTable(queue) {
+    const tbody = document.getElementById('queueTableBody');
+    if (!queue || queue.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">Waiting queue is empty.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = queue.map(q => `
+      <tr>
+        <td><strong>#${q.queuePosition}</strong></td>
+        <td>Order #${q.orderId}</td>
+        <td>₹${(Number(q.amountPaise)/100).toFixed(2)}</td>
+        <td><span class="badge badge-warning">QUEUED</span></td>
+        <td>${new Date(q.createdAt).toLocaleTimeString()}</td>
+      </tr>
+    `).join('');
+  }
+
+  function updateKpis(payments, queue) {
+    let successVol = 0;
+    let successCount = 0;
+    let pendingCounter = 0;
+    let singleVerify = 0;
+    let dualVerify = 0;
+
+    payments.forEach(p => {
+      if (p.status === 'SUCCESS') {
+        successCount++;
+        successVol += Number(p.amountPaise);
+        if (p.verificationLevel >= 2) {
+          dualVerify++;
+        } else {
+          singleVerify++;
+        }
+      }
+      if (p.status === 'ACTIVE' && (p.method === 'CASH_COUNTER' || p.method === 'CARD_COUNTER')) {
+        pendingCounter++;
+      }
+    });
+
+    document.getElementById('kpiVol').textContent = `₹${(successVol/100).toFixed(2)}`;
+    document.getElementById('kpiSuccessCount').textContent = successCount;
+    document.getElementById('kpiQueueCount').textContent = queue.length;
+    document.getElementById('kpiPendingCounterCount').textContent = pendingCounter;
+    if (document.getElementById('kpiSingleVerify')) document.getElementById('kpiSingleVerify').textContent = singleVerify;
+    if (document.getElementById('kpiDualVerify')) document.getElementById('kpiDualVerify').textContent = dualVerify;
+  }
+
+  async function fetchCounterPayments() {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/admin/payments`);
+      const data = await res.json();
+      renderCounterDesk(data.payments || []);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function renderCounterDesk(payments) {
+    const pending = payments.filter(p => p.status === 'ACTIVE' && (p.method === 'CASH_COUNTER' || p.method === 'CARD_COUNTER'));
+    const tbody = document.getElementById('counterTableBody');
+
+    if (!pending || pending.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:1.5rem;">No pending counter payments right now.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = pending.map(p => `
+      <tr>
+        <td><strong>Order #${p.orderId}</strong></td>
+        <td><code title="${p.id}" style="font-size:0.75rem; background:#0f172a; padding:0.2rem 0.4rem; border-radius:0.25rem; border:1px solid var(--border);">${p.id.substring(0, 16)}...</code></td>
+        <td><strong style="color:#34d399; font-size:1.15rem;">₹${(Number(p.amountPaise)/100).toFixed(2)}</strong></td>
+        <td>
+          <span class="badge ${p.method === 'CASH_COUNTER' ? 'badge-success' : 'badge-info'}" style="font-weight:700;">
+            ${p.method === 'CASH_COUNTER' ? '💵 Cash at Till' : '💳 Card at POS'}
+          </span>
+        </td>
+        <td>${new Date(p.createdAt).toLocaleTimeString()}</td>
+        <td>
+          <div style="display:flex; gap:0.4rem;">
+            <button class="btn btn-success" style="padding:0.45rem 0.85rem; font-size:0.8rem; width:auto;" onclick="confirmCounterPayment('${p.id}', '${p.method}')">
+              ✓ Approve
+            </button>
+            <button class="btn btn-danger" style="padding:0.45rem 0.85rem; font-size:0.8rem; width:auto; background:#dc2626;" onclick="declineCounterPayment('${p.id}', '${p.method}')">
+              ✕ Decline
+            </button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  async function confirmCounterPayment(paymentId, method) {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/admin/counter-confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paymentId,
+          operatorId: document.getElementById('operatorDisplay').textContent,
+          method
+        })
+      });
+      if (res.ok) {
+        alert('Counter payment approved and confirmed successfully! Webhook dispatched.');
+        fetchLiveData();
+        fetchCounterPayments();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Failed to confirm counter payment');
+      }
+    } catch (e) {
+      alert('Network error confirming counter payment.');
+    }
+  }
+
+  async function declineCounterPayment(paymentId, method) {
+    const reason = prompt('Reason for declining this counter payment:', 'Payment not received at counter');
+    if (reason === null) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/admin/counter-decline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paymentId,
+          operatorId: document.getElementById('operatorDisplay').textContent,
+          reason
+        })
+      });
+      if (res.ok) {
+        alert('Counter payment declined. Customer checkout updated.');
+        fetchLiveData();
+        fetchCounterPayments();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Failed to decline counter payment');
+      }
+    } catch (e) {
+      alert('Network error declining counter payment.');
+    }
+  }
+
+  async function fetchObserversStatus() {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/admin/observers`);
+      const data = await res.json();
+
+      // Render Google Messages Badge & Status
+      const smsBadge = document.getElementById('smsAutoBadge');
+      if (data.sms && smsBadge) {
+        if (data.sms.status === 'CONNECTED' || data.sms.isPaired) {
+          smsBadge.className = 'badge badge-success';
+          smsBadge.textContent = `Connected (Background Polling - ${data.sms.messagesObserved || 0} Msgs)`;
+        } else if (data.sms.status === 'AWAITING_PAIRING') {
+          smsBadge.className = 'badge badge-warning';
+          smsBadge.textContent = 'Pairing Needed (Visible Window Open)';
+        } else {
+          smsBadge.className = 'badge badge-info';
+          smsBadge.textContent = 'Standby';
+        }
+      }
+
+      // Render Gmail Badge & Status
+      const gmailBadge = document.getElementById('gmailAutoBadge');
+      if (data.gmail && gmailBadge) {
+        if (data.gmail.status === 'CONNECTED' || data.gmail.isLoggedIn) {
+          gmailBadge.className = 'badge badge-success';
+          gmailBadge.textContent = `Connected (Background Polling - ${data.gmail.emailsObserved || 0} Emails)`;
+        } else if (data.gmail.status === 'AWAITING_LOGIN') {
+          gmailBadge.className = 'badge badge-warning';
+          gmailBadge.textContent = 'Login Needed (Visible Window Open)';
+        } else {
+          gmailBadge.className = 'badge badge-info';
+          gmailBadge.textContent = 'Standby';
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function launchGoogleMessagesPairing() {
+    try {
+      const res = await fetch('http://localhost:6002/api/browser/launch-pairing', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        alert('Chrome window launched for Google Messages Web! Please scan the QR code from your Android phone.');
+      } else {
+        alert(data.error || 'Failed to launch Google Messages pairing.');
+      }
+    } catch (e) {
+      alert('Google Messages service at port 6002 is starting or unreachable.');
+    }
+  }
+
+  async function launchGmailLogin() {
+    try {
+      const res = await fetch('http://localhost:6003/api/browser/launch-login', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        alert('Chrome window launched for Gmail login! Please log into your Google account.');
+      } else {
+        alert(data.error || 'Failed to launch Gmail browser login.');
+      }
+    } catch (e) {
+      alert('Gmail observer service at port 6003 is starting or unreachable.');
+    }
+  }
+
+  async function fetchPaymentsLedger() {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/admin/payments`);
+      const data = await res.json();
+      const tbody = document.getElementById('paymentsLedgerTbody');
+
+      tbody.innerHTML = data.payments.map(p => {
+        let verifyBadge = '<span style="color:var(--text-muted); font-size:0.75rem;">-</span>';
+        if (p.status === 'SUCCESS') {
+          const tag = p.verificationTag || (p.verificationLevel >= 2 ? 'Dual Verification' : 'Single Verification');
+          if (p.verificationLevel >= 2) {
+            verifyBadge = `<span class="badge" style="background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.3); font-weight:800;">✓✓ ${tag}</span>`;
+          } else {
+            verifyBadge = `<span class="badge" style="background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.3); font-weight:800;">✓ ${tag}</span>`;
+          }
+        }
+
+        const sourcesChips = (p.verificationSources && p.verificationSources.length > 0)
+          ? p.verificationSources.map(s => `<code style="font-size:0.7rem; background:#0f172a; padding:0.15rem 0.35rem; border-radius:0.25rem; margin-right:0.2rem; border:1px solid var(--border); color:#93c5fd;">${s === 'GOOGLE_MESSAGES' ? 'SMS' : s}</code>`).join('')
+          : '<span style="color:var(--text-muted); font-size:0.75rem;">-</span>';
+
+        return `
+          <tr>
+            <td><strong>Order #${p.orderId}</strong></td>
+            <td><code>${p.id}</code></td>
+            <td>₹${(Number(p.amountPaise)/100).toFixed(2)}</td>
+            <td>${p.method}</td>
+            <td><span class="badge ${p.status === 'SUCCESS' ? 'badge-success' : (p.status === 'ACTIVE' ? 'badge-info' : 'badge-danger')}">${p.status}</span></td>
+            <td>${verifyBadge}</td>
+            <td>${sourcesChips}</td>
+            <td>${new Date(p.createdAt).toLocaleTimeString()}</td>
+            <td>${p.completedAt ? new Date(p.completedAt).toLocaleTimeString() : '-'}</td>
+          </tr>
+        `;
+      }).join('');
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  let currentUpiAccounts = [];
+
+  async function fetchGatewaySettings() {
+    try {
+      // 1. Fetch UPI settings & all accounts
+      const upiRes = await fetch(`${API_BASE}/api/v1/admin/upi-settings`);
+      const upiData = await upiRes.json();
+      currentUpiAccounts = upiData.accounts || [];
+
+      renderUpiAccountsTable(currentUpiAccounts);
+      renderActiveVpaCallout(upiData);
+
+      // 2. Fetch Merchant Branding & Modality Toggles
+      const mRes = await fetch(`${API_BASE}/api/v1/admin/merchant-settings`);
+      const mData = await mRes.json();
+      document.getElementById('settingBusinessName').value = mData.businessName || '';
+      document.getElementById('settingWebhookUrl').value = mData.webhookUrl || '';
+      document.getElementById('settingWebhookSecret').value = mData.webhookSecret || '';
+
+      const branding = mData.branding || {};
+      document.getElementById('settingAppName').value = branding.appName || '';
+      document.getElementById('settingLogoUrl').value = branding.logoUrl || '';
+      document.getElementById('settingSidebarNotice').value = branding.sidebarNotice || '';
+      document.getElementById('settingFooterGuarantee').value = branding.footerGuarantee || '';
+      document.getElementById('settingCounterInstructions').value = branding.counterInstructions || '';
+      document.getElementById('settingPrimaryColor').value = branding.primaryColor || '#2563eb';
+      document.getElementById('settingColorPicker').value = branding.primaryColor || '#2563eb';
+
+      const enabled = branding.enabledPaymentMethods || ['UPI', 'CASH_COUNTER', 'CARD_COUNTER'];
+      document.getElementById('toggleMethodUpi').checked = enabled.includes('UPI');
+      document.getElementById('toggleMethodCash').checked = enabled.includes('CASH_COUNTER');
+      document.getElementById('toggleMethodCard').checked = enabled.includes('CARD_COUNTER');
+
+      const supportEmails = mData.supportEmails || branding.supportEmails || (mData.contactEmail ? [mData.contactEmail] : []);
+      document.getElementById('settingSupportEmails').value = Array.isArray(supportEmails) ? supportEmails.join(', ') : (supportEmails || '');
+
+      const supportMobiles = mData.supportMobiles || branding.supportMobiles || (mData.contactPhone ? [mData.contactPhone] : []);
+      document.getElementById('settingSupportMobiles').value = Array.isArray(supportMobiles) ? supportMobiles.join(', ') : (supportMobiles || '');
+
+      const privacyUrl = mData.privacyPolicyUrl || branding.privacyPolicyUrl || '';
+      document.getElementById('settingPrivacyPolicyUrl').value = privacyUrl;
+
+      settingsLoaded = true;
+    } catch (e) {
+      console.error('Settings fetch error:', e);
+    }
+  }
+
+  function renderActiveVpaCallout(activeData) {
+    const idEl = document.getElementById('activeVpaIdDisplay');
+    const payeeEl = document.getElementById('activeVpaPayeeDisplay');
+    const modeBadge = document.getElementById('activeVpaModeBadge');
+    const descEl = document.getElementById('activeVpaInteractionDesc');
+    const headerVpa = document.getElementById('accountVpaDisplay');
+
+    if (activeData && activeData.upiId && activeData.isActive) {
+      idEl.textContent = activeData.upiId;
+      payeeEl.textContent = `Payee: ${activeData.payeeName || 'Store'}`;
+      if (headerVpa) headerVpa.textContent = `VPA: ${activeData.upiId}`;
+
+      if (activeData.isMerchantEnabled) {
+        modeBadge.className = 'badge badge-success';
+        modeBadge.textContent = 'Active Mode: MERCHANT-ENABLED';
+        descEl.innerHTML = '<span style="color:#34d399;">✓ Direct Android Intent Buttons &amp; QR Code</span>';
+      } else {
+        modeBadge.className = 'badge badge-warning';
+        modeBadge.textContent = 'Active Mode: NON-MERCHANT (QR-ONLY)';
+        descEl.innerHTML = '<span style="color:#fbbf24;">ℹ Automatic QR Download &amp; Gallery Upload Modal</span>';
+      }
+    } else {
+      idEl.textContent = 'No VPA currently active';
+      payeeEl.textContent = 'Add or activate a VPA below to accept payments';
+      modeBadge.className = 'badge badge-danger';
+      modeBadge.textContent = 'NO ACTIVE VPA';
+      descEl.textContent = 'Gateway payments paused';
+    }
+  }
+
+  function renderUpiAccountsTable(accounts) {
+    const tbody = document.getElementById('upiAccountsTableBody');
+    if (!accounts || accounts.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:1.5rem;">No UPI accounts saved yet. Add your first VPA above.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = accounts.map(a => {
+      const typeBadge = a.isMerchantEnabled
+        ? '<span class="badge badge-success" style="font-size:0.75rem;">Merchant UPI</span>'
+        : '<span class="badge badge-warning" style="font-size:0.75rem;">Personal / Non-Merchant</span>';
+
+      const statusBadge = a.isActive
+        ? '<span class="badge badge-info" style="font-weight:800; font-size:0.78rem;">● ACTIVE</span>'
+        : '<span class="badge" style="background:#334155; color:#94a3b8; font-size:0.75rem;">Disabled</span>';
+
+      const slotBadge = a.isSlotBusy
+        ? '<span class="badge badge-warning" style="font-size:0.7rem;">Slot Busy</span>'
+        : '<span style="color:var(--text-muted); font-size:0.75rem;">Available</span>';
+
+      let actionBtns = '';
+      if (!a.isActive) {
+        actionBtns += `<button class="btn btn-primary" style="padding:0.35rem 0.65rem; font-size:0.78rem; width:auto; margin-right:0.4rem;" onclick="activateVpa('${a.id}')">Activate</button>`;
+      } else {
+        actionBtns += `<button class="btn btn-secondary" style="padding:0.35rem 0.65rem; font-size:0.78rem; width:auto; margin-right:0.4rem;" onclick="toggleVpa('${a.id}')">Deactivate</button>`;
+      }
+      actionBtns += `<button class="btn btn-danger" style="padding:0.35rem 0.65rem; font-size:0.78rem; width:auto; background:#dc2626;" onclick="deleteVpa('${a.id}', '${a.upiId}')">Delete</button>`;
+
+      return `
+        <tr style="${a.isActive ? 'background:rgba(56,189,248,0.04);' : ''}">
+          <td><strong style="color:#f1f5f9;">${a.upiId}</strong></td>
+          <td>${a.payeeName}</td>
+          <td>${typeBadge}</td>
+          <td>${statusBadge}</td>
+          <td>${slotBadge}</td>
+          <td style="font-size:0.75rem; color:var(--text-muted);">${new Date(a.createdAt).toLocaleDateString()}</td>
+          <td>${actionBtns}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  async function addNewUpiAccount() {
+    const upiId = document.getElementById('newUpiVpa').value.trim();
+    const payeeName = document.getElementById('newUpiPayee').value.trim();
+    const typeRadio = document.querySelector('input[name="newUpiType"]:checked');
+    const isMerchantEnabled = typeRadio ? (typeRadio.value === 'merchant') : true;
+    const isActive = document.getElementById('newUpiActivateNow').checked;
+
+    if (!upiId) return alert('Please enter a valid UPI VPA.');
+
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/admin/upi-accounts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          upiId,
+          payeeName: payeeName || document.getElementById('settingBusinessName').value,
+          isMerchantEnabled,
+          isActive
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        alert(`UPI account "${data.account.upiId}" added successfully! ${data.account.isActive ? 'It is now the active gateway VPA.' : ''}`);
+        document.getElementById('newUpiVpa').value = '';
+        document.getElementById('newUpiPayee').value = '';
+        fetchGatewaySettings();
+      } else {
+        alert(data.error || 'Failed to add UPI account');
+      }
+    } catch (e) {
+      alert('Network error adding UPI account.');
+    }
+  }
+
+  async function activateVpa(accountId) {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/admin/upi-accounts/${accountId}/activate`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`UPI account "${data.activeAccount.upiId}" is now the active gateway VPA! All other accounts deactivated.`);
+        fetchGatewaySettings();
+      } else {
+        alert(data.error || 'Failed to activate UPI account');
+      }
+    } catch (e) {
+      alert('Network error activating UPI account.');
+    }
+  }
+
+  async function toggleVpa(accountId) {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/admin/upi-accounts/${accountId}/toggle`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        fetchGatewaySettings();
+      } else {
+        alert(data.error || 'Failed to toggle UPI account');
+      }
+    } catch (e) {
+      alert('Network error toggling UPI account.');
+    }
+  }
+
+  async function deleteVpa(accountId, upiId) {
+    if (!confirm(`Are you sure you want to delete VPA "${upiId}"?`)) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/admin/upi-accounts/${accountId}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`VPA "${upiId}" deleted.`);
+        fetchGatewaySettings();
+      } else {
+        alert(data.error || 'Failed to delete UPI account');
+      }
+    } catch (e) {
+      alert('Network error deleting UPI account.');
+    }
+  }
+
+  async function saveMerchantBrandingAndToggles() {
+    if (!settingsLoaded) return alert('Settings are still loading. Please wait and try again.');
+    const businessName = document.getElementById('settingBusinessName').value.trim();
+    const appName = document.getElementById('settingAppName').value.trim();
+    const logoUrl = document.getElementById('settingLogoUrl').value.trim();
+    const primaryColor = document.getElementById('settingPrimaryColor').value.trim();
+    const sidebarNotice = document.getElementById('settingSidebarNotice').value.trim();
+    const footerGuarantee = document.getElementById('settingFooterGuarantee').value.trim();
+    const counterInstructions = document.getElementById('settingCounterInstructions').value.trim();
+    const webhookUrl = document.getElementById('settingWebhookUrl').value.trim();
+
+    const supportEmails = document.getElementById('settingSupportEmails').value.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+    const supportMobiles = document.getElementById('settingSupportMobiles').value.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+    const privacyPolicyUrl = document.getElementById('settingPrivacyPolicyUrl').value.trim();
+
+    const enabledMethods = [];
+    if (document.getElementById('toggleMethodUpi').checked) enabledMethods.push('UPI');
+    if (document.getElementById('toggleMethodCash').checked) enabledMethods.push('CASH_COUNTER');
+    if (document.getElementById('toggleMethodCard').checked) enabledMethods.push('CARD_COUNTER');
+
+    if (enabledMethods.length === 0) {
+      return alert('At least one payment modality must be enabled!');
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/admin/merchant-settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          businessName,
+          webhookUrl,
+          supportEmails,
+          supportMobiles,
+          privacyPolicyUrl: privacyPolicyUrl || null,
+          branding: {
+            appName,
+            logoUrl: logoUrl || null,
+            primaryColor,
+            sidebarNotice: sidebarNotice || null,
+            footerGuarantee: footerGuarantee || null,
+            counterInstructions: counterInstructions || null,
+            enabledPaymentMethods: enabledMethods,
+            supportEmails,
+            supportMobiles,
+            privacyPolicyUrl: privacyPolicyUrl || null
+          }
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert('Merchant white-label branding, custom text & toggles saved successfully! Reflects immediately on checkout.');
+        fetchGatewaySettings();
+      } else {
+        alert(data.error || 'Failed to save merchant settings');
+      }
+    } catch (e) {
+      alert('Network error saving merchant settings.');
+    }
+  }
+
+  function connectAdminEventsSse() {
+    try {
+      const adminSse = new EventSource(`${API_BASE}/api/v1/admin/stream`);
+      adminSse.addEventListener('counter_payment_requested', () => {
+        fetchLiveData();
+        fetchCounterPayments();
+      });
+      adminSse.addEventListener('status_change', () => {
+        fetchLiveData();
+        fetchCounterPayments();
+      });
+      adminSse.onerror = () => {
+        adminSse.close();
+        setTimeout(connectAdminEventsSse, 3000);
+      };
+    } catch (e) {}
+  }
+
+  // Start continuous 2.5s live polling & fetch initial settings
+  fetchLiveData();
+  fetchGatewaySettings();
+  connectAdminEventsSse();
+  pollingTimer = setInterval(fetchLiveData, 2500);
+</script>
+
+</body>
+</html>

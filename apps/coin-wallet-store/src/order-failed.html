@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payment Unsuccessful — GamerVault</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --border: #334155;
+      --primary: #f59e0b;
+      --primary-hover: #d97706;
+      --danger: #ef4444;
+      --text: #f8fafc;
+      --text-muted: #cbd5e1;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+
+    header {
+      background: #020617;
+      border-bottom: 1px solid var(--border);
+      padding: 1.25rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand { font-size: 1.35rem; font-weight: 800; color: #f59e0b; text-decoration: none; display: flex; align-items: center; gap: 0.5rem; }
+
+    main { max-width: 620px; width: 100%; margin: 2.5rem auto; padding: 1.5rem; flex: 1; }
+
+    .failed-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 1.25rem;
+      padding: 2.5rem 2rem;
+      text-align: center;
+    }
+
+    .status-icon {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: rgba(239, 68, 68, 0.15);
+      border: 2px solid rgba(239, 68, 68, 0.3);
+      color: var(--danger);
+      font-size: 2.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 1.25rem auto;
+    }
+
+    .failed-title { font-size: 1.75rem; font-weight: 800; color: #ffffff; margin-bottom: 0.5rem; }
+    .failed-reason { font-size: 0.95rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 1.75rem; }
+
+    .order-summary-box {
+      background: #0b1120;
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1rem 1.25rem;
+      text-align: left;
+      margin-bottom: 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .btn-row { display: flex; gap: 0.75rem; flex-direction: column; }
+
+    .btn {
+      width: 100%;
+      padding: 0.85rem 1.25rem;
+      border-radius: 0.6rem;
+      border: none;
+      font-weight: 700;
+      font-size: 0.95rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+
+    .btn-retry { background: #f59e0b; color: #000; }
+    .btn-retry:hover { background: var(--primary-hover); }
+    .btn-support { background: #334155; color: #ffffff; }
+    .btn-support:hover { background: #475569; }
+  </style>
+</head>
+<body>
+
+<header>
+  <a href="/" class="brand">
+    <span>🪙 GamerVault</span>
+  </a>
+  <a href="/" style="color:var(--text-muted); font-size:0.85rem; text-decoration:none;">
+    &larr; Back to Coin Store
+  </a>
+</header>
+
+<main>
+  <div class="failed-card">
+    <div class="status-icon">✕</div>
+    <h1 class="failed-title">Payment Unsuccessful</h1>
+    <p class="failed-reason" id="failureMessage">
+      Your payment could not be confirmed by the bank. If money was deducted from your UPI account, please do not worry—submit your UTR in the Resolution Desk and our staff will credit your coins immediately.
+    </p>
+
+    <div class="order-summary-box">
+      <div>
+        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Order Reference</div>
+        <strong style="font-size:1rem; color:#fff;" id="orderIdText">ORDER-#</strong>
+      </div>
+      <div>
+        <span class="badge" style="background:rgba(239,68,68,0.2); color:#f87171; border:1px solid rgba(239,68,68,0.3); padding:0.25rem 0.6rem; border-radius:9999px; font-size:0.75rem; font-weight:700;" id="reasonBadge">FAILED</span>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <a href="/" class="btn btn-retry">
+        ⚡ Try Again &amp; Restart Order
+      </a>
+      <a id="btnGoToHelp" href="#" class="btn btn-support">
+        🛡️ Contact Payment Support &amp; Claim UTR &rsaquo;
+      </a>
+    </div>
+  </div>
+</main>
+
+<script>
+  const urlParams = new URLSearchParams(window.location.search);
+  const orderId = urlParams.get('orderId') || 'UNKNOWN';
+  const paymentId = urlParams.get('paymentId') || '';
+  const reason = (urlParams.get('reason') || 'FAILED').toUpperCase();
+
+  document.getElementById('orderIdText').textContent = orderId;
+  document.getElementById('reasonBadge').textContent = reason;
+
+  const msgEl = document.getElementById('failureMessage');
+  if (reason === 'EXPIRED') {
+    msgEl.textContent = 'The 5-minute active payment window expired before verification was completed. If you already transferred funds from your UPI app, click below to claim your UTR.';
+  } else if (reason === 'CANCELLED') {
+    msgEl.textContent = 'You cancelled this payment session. Your slot was released and no funds were deducted.';
+  } else {
+    msgEl.textContent = 'No incoming bank confirmation was detected during the 30-second verification period. If money was debited, our automated observation engine or merchant staff will reconcile your transaction.';
+  }
+
+  // Support link: dynamically resolves to production domain or local port 3000
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const helpBase = isLocal ? 'http://localhost:3000' : 'https://help.example.com';
+  const helpUrl = `${helpBase}/support?orderId=${encodeURIComponent(orderId)}&paymentId=${encodeURIComponent(paymentId)}`;
+  document.getElementById('btnGoToHelp').href = helpUrl;
+</script>
+
+</body>
+</html>

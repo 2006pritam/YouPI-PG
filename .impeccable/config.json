@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "all-caps-body",
+        "value": "*",
+        "files": [
+          "apps/merchant-admin/src/views/admin.html"
+        ],
+        "createdAt": "2026-09-09T06:44:25.559Z",
+        "reason": "KPI card titles are 2-5 word dashboard labels — exactly the short-label use case the rule permits"
+      }
+    ]
+  }
+}

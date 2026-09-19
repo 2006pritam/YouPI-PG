@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GamerVault — Coin Top-Up Store</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --border: #334155;
+      --primary: #f59e0b;
+      --primary-hover: #d97706;
+      --text: #f8fafc;
+      --text-muted: #cbd5e1;
+      --accent: #3b82f6;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+
+    header {
+      background: #020617;
+      border-bottom: 1px solid var(--border);
+      padding: 1.25rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand { font-size: 1.35rem; font-weight: 800; color: #f59e0b; display: flex; align-items: center; gap: 0.5rem; }
+    .wallet-chip {
+      background: #1e293b;
+      border: 1px solid var(--border);
+      border-radius: 9999px;
+      padding: 0.5rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-weight: 700;
+      color: #f8fafc;
+      text-decoration: none;
+    }
+
+    main { max-width: 1080px; width: 100%; margin: 0 auto; padding: 2rem 1.5rem; flex: 1; }
+    .hero { text-align: center; margin-bottom: 2.5rem; }
+    .hero h1 { font-size: 2.5rem; font-weight: 900; margin-bottom: 0.5rem; color: #ffffff; }
+    .hero p { color: var(--text-muted); font-size: 1.05rem; }
+
+    .packs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
+    .pack-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      padding: 1.75rem 1.5rem;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .pack-card:hover { transform: translateY(-4px); border-color: var(--primary); }
+    .pack-card.popular { border-color: #f59e0b; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.3); }
+
+    .popular-tag {
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #f59e0b;
+      color: #000;
+      font-size: 0.72rem;
+      font-weight: 800;
+      padding: 0.2rem 0.6rem;
+      border-radius: 9999px;
+      text-transform: uppercase;
+    }
+
+    .pack-icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+    .pack-title { font-size: 1.2rem; font-weight: 800; margin-bottom: 0.35rem; }
+    .coins-amount { font-size: 2.25rem; font-weight: 900; color: #f59e0b; margin-bottom: 0.25rem; }
+    .bonus-tag { font-size: 0.78rem; color: #10b981; font-weight: 700; margin-bottom: 1rem; }
+    .pack-price { font-size: 1.35rem; font-weight: 800; color: #ffffff; margin-bottom: 1.25rem; }
+
+    .btn {
+      padding: 0.75rem 1.25rem;
+      border-radius: 0.6rem;
+      border: none;
+      font-weight: 700;
+      font-size: 0.95rem;
+      cursor: pointer;
+      width: 100%;
+      transition: all 0.2s;
+    }
+    .btn-buy { background: #f59e0b; color: #000000; }
+    .btn-buy:hover { background: var(--primary-hover); }
+
+    .custom-topup-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      padding: 1.75rem;
+      margin-bottom: 2rem;
+    }
+    .custom-calc-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      align-items: center;
+      margin-top: 1rem;
+    }
+    @media (max-width: 640px) {
+      .custom-calc-grid { grid-template-columns: 1fr; }
+    }
+    .quick-chips { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+    .chip-btn {
+      background: #334155;
+      color: #f8fafc;
+      border: 1px solid #475569;
+      padding: 0.35rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .chip-btn:hover { background: #475569; }
+    .custom-result-box {
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1.25rem;
+      text-align: center;
+    }
+
+    /* Modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; padding: 1rem; z-index: 50; }
+    .modal-box { background: var(--card-bg); max-width: 440px; width: 100%; border-radius: 1rem; border: 1px solid var(--border); padding: 1.75rem; }
+    .modal-title { font-size: 1.25rem; font-weight: 800; margin-bottom: 1rem; }
+
+    .input-row { margin-bottom: 1.25rem; }
+    .input-row label { display: block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; margin-bottom: 0.35rem; }
+    .input-row input { width: 100%; padding: 0.75rem; background: #0f172a; border: 1px solid var(--border); border-radius: 0.5rem; color: #fff; font-size: 0.95rem; }
+
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span>🪙 GamerVault</span>
+  </div>
+  <a href="/wallet" class="wallet-chip">
+    <span>🪙 Balance:</span>
+    <span id="headerCoinBalance">... Coins</span>
+    <span style="color:#f59e0b; margin-left:0.25rem;">&rsaquo;</span>
+  </a>
+</header>
+
+<main>
+  <div class="hero">
+    <h1>Top Up Game Coins Instantly</h1>
+    <p>Select your coin pack below and pay securely via Instant UPI or Counter Till.</p>
+  </div>
+
+  <div class="packs-grid">
+    <!-- Pack 1 -->
+    <div class="pack-card">
+      <div>
+        <div class="pack-icon">⚡</div>
+        <div class="pack-title">Starter Pack</div>
+        <div class="coins-amount">100</div>
+        <div class="bonus-tag">1 INR = 1 Coin</div>
+        <div class="pack-price">₹100.00</div>
+      </div>
+      <button class="btn btn-buy" onclick="purchasePack('Starter Pack', 100, 100)">Purchase Pack &rsaquo;</button>
+    </div>
+
+    <!-- Pack 2 (Popular) -->
+    <div class="pack-card popular">
+      <div class="popular-tag">Most Popular</div>
+      <div>
+        <div class="pack-icon">🔥</div>
+        <div class="pack-title">Gamer Pack</div>
+        <div class="coins-amount">500</div>
+        <div class="bonus-tag">1 INR = 1 Coin</div>
+        <div class="pack-price">₹500.00</div>
+      </div>
+      <button class="btn btn-buy" onclick="purchasePack('Gamer Pack', 500, 500)">Purchase Pack &rsaquo;</button>
+    </div>
+
+    <!-- Pack 3 -->
+    <div class="pack-card">
+      <div>
+        <div class="pack-icon">💎</div>
+        <div class="pack-title">Pro Vault</div>
+        <div class="coins-amount">1,000</div>
+        <div class="bonus-tag">1 INR = 1 Coin</div>
+        <div class="pack-price">₹1,000.00</div>
+      </div>
+      <button class="btn btn-buy" onclick="purchasePack('Pro Vault', 1000, 1000)">Purchase Pack &rsaquo;</button>
+    </div>
+
+    <!-- Pack 4 -->
+    <div class="pack-card">
+      <div>
+        <div class="pack-icon">👑</div>
+        <div class="pack-title">Mythic Hoard</div>
+        <div class="coins-amount">2,500</div>
+        <div class="bonus-tag">1 INR = 1 Coin</div>
+        <div class="pack-price">₹2,500.00</div>
+      </div>
+      <button class="btn btn-buy" onclick="purchasePack('Mythic Hoard', 2500, 2500)">Purchase Pack &rsaquo;</button>
+    </div>
+  </div>
+
+  <!-- Custom Top-Up Section -->
+  <div class="custom-topup-card">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+      <div>
+        <h3 style="font-size:1.3rem; font-weight:800; color:#ffffff; margin-bottom:0.25rem;">⚡ Custom Coin Top-Up</h3>
+        <p style="color:var(--text-muted); font-size:0.88rem;">Need a specific amount? Enter any rupee value (minimum ₹1.00) at 1 INR = 1 Coin rate.</p>
+      </div>
+      <span style="font-size:0.75rem; font-weight:700; color:#10b981; background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); padding:0.25rem 0.65rem; border-radius:9999px;">Fixed Rate: 1 Rs = 1 Coin</span>
+    </div>
+
+    <div class="custom-calc-grid">
+      <div>
+        <label style="display:block; font-size:0.85rem; color:var(--text-muted); font-weight:700; margin-bottom:0.35rem;">Enter Amount in Rupees (₹)</label>
+        <div style="position:relative;">
+          <span style="position:absolute; left:0.85rem; top:50%; transform:translateY(-50%); font-size:1.2rem; font-weight:800; color:#f59e0b;">₹</span>
+          <input id="customAmountInput" type="number" min="1" step="1" value="250" style="width:100%; padding:0.75rem 0.75rem 0.75rem 2.25rem; background:#0f172a; border:1px solid var(--border); border-radius:0.5rem; color:#fff; font-size:1.15rem; font-weight:800;" oninput="updateCustomCoinsCalc()" />
+        </div>
+        <div class="quick-chips">
+          <span style="font-size:0.75rem; color:var(--text-muted); align-self:center;">Quick add:</span>
+          <button type="button" class="chip-btn" onclick="setCustomAmount(1)">₹1</button>
+          <button type="button" class="chip-btn" onclick="setCustomAmount(10)">+₹10</button>
+          <button type="button" class="chip-btn" onclick="setCustomAmount(100)">+₹100</button>
+          <button type="button" class="chip-btn" onclick="setCustomAmount(250)">+₹250</button>
+          <button type="button" class="chip-btn" onclick="setCustomAmount(500)">+₹500</button>
+          <button type="button" class="chip-btn" onclick="setCustomAmount(1000)">+₹1,000</button>
+        </div>
+      </div>
+
+      <div class="custom-result-box">
+        <div style="font-size:0.8rem; color:var(--text-muted); font-weight:700; text-transform:uppercase;">Total Coins You Receive</div>
+        <div id="customCoinsDisplay" style="font-size:2.25rem; font-weight:900; color:#f59e0b; margin:0.35rem 0;">250 Coins</div>
+        <div id="customBonusTag" style="font-size:0.78rem; color:#10b981; font-weight:700; margin-bottom:1rem;">Rate: 1 INR = 1 Coin (₹250.00 = 250 Coins)</div>
+        <button class="btn btn-buy" onclick="purchaseCustomCoins()">Purchase Custom Coins &rsaquo;</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  async function loadBalance() {
+    try {
+      const res = await fetch('/api/wallet-balance');
+      const data = await res.json();
+      document.getElementById('headerCoinBalance').textContent = `${data.coins} Coins`;
+    } catch {}
+  }
+
+  async function purchasePack(name, coins, price) {
+    try {
+      const res = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          packName: name,
+          coins: coins,
+          price: price
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+      } else {
+        alert(data.error || 'Checkout initiation failed');
+      }
+    } catch (e) {
+      alert('Error initiating checkout.');
+    }
+  }
+
+  function calculateCustomCoins(amount) {
+    if (amount < 1) return 0;
+    return Math.floor(amount); // 1 rs = 1 coin
+  }
+
+  function updateCustomCoinsCalc() {
+    const amount = parseFloat(document.getElementById('customAmountInput').value) || 0;
+    const coins = calculateCustomCoins(amount);
+    document.getElementById('customCoinsDisplay').textContent = `${coins.toLocaleString()} Coins`;
+    document.getElementById('customBonusTag').textContent = `Rate: 1 INR = 1 Coin (₹${amount.toFixed(2)} = ${coins.toLocaleString()} Coins)`;
+  }
+
+  function setCustomAmount(val) {
+    const input = document.getElementById('customAmountInput');
+    const cur = parseFloat(input.value) || 0;
+    if (val === 1) input.value = 1;
+    else input.value = cur + val;
+    updateCustomCoinsCalc();
+  }
+
+  function purchaseCustomCoins() {
+    const amount = parseFloat(document.getElementById('customAmountInput').value) || 0;
+    if (amount < 1) return alert('Minimum top-up is ₹1.00');
+    const coins = calculateCustomCoins(amount);
+    purchasePack('Custom Top-Up', coins, amount);
+  }
+
+  loadBalance();
+</script>
+    document.getElementById('customBonusTag').textContent = `Rate: 1 INR = 1 Coin (₹${amount.toFixed(2)} = ${coins} Coins)`;
+  }
+
+  function setCustomAmount(amt) {
+    document.getElementById('customAmountInput').value = amt;
+    updateCustomCoinsCalc();
+  }
+
+  function openCustomCheckoutModal() {
+    const amount = parseFloat(document.getElementById('customAmountInput').value) || 0;
+    if (amount < 1) {
+      alert('Minimum custom top-up amount is ₹1.00');
+      return;
+    }
+    const coins = calculateCustomCoins(amount);
+    openCheckoutModal('Custom Top-Up', coins, amount);
+  }
+
+  loadBalance();
+</script>
+
+</body>
+</html>

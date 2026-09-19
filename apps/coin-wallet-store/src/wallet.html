@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Game Wallet — GamerVault</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --border: #334155;
+      --primary: #f59e0b;
+      --primary-hover: #d97706;
+      --text: #f8fafc;
+      --text-muted: #cbd5e1;
+      --success: #10b981;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+
+    header {
+      background: #020617;
+      border-bottom: 1px solid var(--border);
+      padding: 1.25rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand { font-size: 1.35rem; font-weight: 800; color: #f59e0b; text-decoration: none; display: flex; align-items: center; gap: 0.5rem; }
+
+    main { max-width: 860px; width: 100%; margin: 0 auto; padding: 2rem 1.5rem; flex: 1; }
+
+    .celebration-banner {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      border-radius: 1rem;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      text-align: center;
+      animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    @keyframes popIn {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .balance-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 1.25rem;
+      padding: 2rem;
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .balance-label { font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
+    .balance-val { font-size: 3.5rem; font-weight: 900; color: #f59e0b; margin: 0.5rem 0; display: flex; align-items: center; justify-content: center; gap: 0.5rem; }
+
+    .btn {
+      padding: 0.75rem 1.5rem;
+      border-radius: 0.6rem;
+      border: none;
+      font-weight: 700;
+      font-size: 0.95rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn-buy { background: #f59e0b; color: #000; }
+    .btn-buy:hover { background: var(--primary-hover); }
+
+    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 1rem; padding: 1.5rem; }
+    .card-title { font-size: 1.15rem; font-weight: 700; margin-bottom: 1.25rem; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th { text-align: left; padding: 0.75rem 1rem; background: #0b1120; color: var(--text-muted); font-weight: 700; border-bottom: 1px solid var(--border); }
+    td { padding: 0.85rem 1rem; border-bottom: 1px solid var(--border); }
+
+    .badge-credited { background: rgba(16, 185, 129, 0.2); color: #34d399; padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; }
+
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+
+<header>
+  <a href="/" class="brand">
+    <span>🪙 GamerVault</span>
+  </a>
+  <a href="/" class="btn btn-buy" style="padding:0.45rem 0.9rem; font-size:0.85rem;">
+    + Buy More Coins
+  </a>
+</header>
+
+<main>
+  <!-- Optional Celebration Banner -->
+  <div class="celebration-banner" id="successBanner" hidden>
+    <div style="font-size: 2.5rem; margin-bottom: 0.25rem;">🎉</div>
+    <h2 style="color: #34d399; margin-bottom: 0.25rem;">Top-Up Successful!</h2>
+    <p style="color: var(--text-muted); font-size: 0.95rem;">
+      Your payment was confirmed and your coins have been loaded into your vault balance!
+    </p>
+  </div>
+
+  <!-- Wallet Balance Tile -->
+  <div class="balance-card">
+    <div class="balance-label">Current Vault Balance</div>
+    <div class="balance-val">
+      <span>🪙</span>
+      <span id="walletCoinsDisplay">0</span>
+    </div>
+    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">
+      Ready to use in games, battle passes, and exclusive digital item drops.
+    </p>
+    <a href="/" class="btn btn-buy">⚡ Top Up More Coins</a>
+  </div>
+
+  <!-- Recent Ledger History -->
+  <div class="card">
+    <div class="card-title">Top-Up History & Transaction Ledger</div>
+    <div style="overflow-x: auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Order ID</th>
+            <th>Pack Description</th>
+            <th>Coins Added</th>
+            <th>Status</th>
+            <th>Timestamp</th>
+          </tr>
+        </thead>
+        <tbody id="walletLedgerBody">
+          <tr><td colspan="5" style="text-align:center; color:var(--text-muted);">No top-up transactions recorded yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+  const urlParams = new URLSearchParams(window.location.search);
+  const orderIdParam = urlParams.get('orderId');
+
+  async function loadWallet() {
+    try {
+      const res = await fetch('/api/wallet-balance');
+      const data = await res.json();
+
+      document.getElementById('walletCoinsDisplay').textContent = data.coins.toLocaleString();
+
+      if (orderIdParam) {
+        document.getElementById('successBanner').hidden = false;
+      }
+
+      const tbody = document.getElementById('walletLedgerBody');
+      if (data.history && data.history.length > 0) {
+        tbody.innerHTML = data.history.map(item => `
+          <tr>
+            <td><strong>#${item.orderId}</strong></td>
+            <td>${item.packName || 'Coin Pack'}</td>
+            <td><strong style="color:#f59e0b;">+${item.coins} Coins</strong></td>
+            <td><span class="badge-credited">${item.status}</span></td>
+            <td>${new Date(item.timestamp).toLocaleString()}</td>
+          </tr>
+        `).join('');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  loadWallet();
+</script>
+
+</body>
+</html>

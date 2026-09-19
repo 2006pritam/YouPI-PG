@@ -1,0 +1,30 @@
+{
+  "name": "youpi-pg",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Self-Hosted White-Label UPI Payment Gateway with Payment Observation Engine",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "node scripts/clean.js",
+    "start": "node scripts/dev.js",
+    "start:prod": "node --env-file=.env scripts/dev.js",
+    "start:prod:api": "node --env-file=.env apps/payment-api/src/index.js",
+    "dev": "node scripts/dev.js",
+    "test": "node --test packages/*/dist/**/*.test.js apps/*/dist/**/*.test.js",
+    "typecheck": "tsc -b --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "author": "Antigravity Systems",
+  "license": "Commercial"
+}
