@@ -9,8 +9,8 @@
     "test": "node --test src/__tests__/**/*.test.js"
   },
   "dependencies": {
-    "@youpi/common": "workspace:*",
-    "@youpi/db": "workspace:*",
-    "@youpi/core": "workspace:*"
+    "@youpi/common": "*",
+    "@youpi/db": "*",
+    "@youpi/core": "*"
   }
 }

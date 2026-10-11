@@ -24,6 +24,19 @@ export class SmsObserverService {
     this.observedCount = 0;
   }
 
+  async resolveActiveReceivingAccount() {
+    try {
+      const res = await fetch(`${this.apiBaseUrl}/api/v1/pollers/active-window`, { signal: AbortSignal.timeout(1000) });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.sessions && data.sessions.length > 0) {
+          return data.sessions[0].receivingAccountId;
+        }
+      }
+    } catch {}
+    return null;
+  }
+
   /**
    * Processes and ingests an incoming SMS notification.
    * @param {{ text: string, sender?: string, timestamp?: Date | number | string }} sms
@@ -32,17 +45,27 @@ export class SmsObserverService {
     const parsed = BankSmsParser.parse(sms);
     if (!parsed) return null;
 
+    let targetAccountId = this.receivingAccountId;
+    try {
+      const activeAcct = await this.resolveActiveReceivingAccount();
+      if (activeAcct) targetAccountId = activeAcct;
+    } catch {}
+
+    const sender = sms.sender || 'BANK-ALERT';
+
     try {
       const result = await this.observerClient.submitObservation({
-        receivingAccountId: this.receivingAccountId,
+        receivingAccountId: targetAccountId,
         amountPaise: parsed.amountPaise,
         amount: parsed.amount,
         observedAt: parsed.observedAt,
         bankReferenceNumber: parsed.bankReferenceNumber,
         senderVpa: parsed.senderVpa,
+        sender,
+        rawText: parsed.rawText,
         rawPayload: {
           text: parsed.rawText,
-          sender: sms.sender
+          sender
         }
       });
 

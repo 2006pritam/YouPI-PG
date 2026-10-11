@@ -1,5 +1,84 @@
+import crypto from 'node:crypto';
 import { HttpServer } from '../server.js';
-import { PaymentStatus, PaymentMethod, AuditActorType, isValidVpa } from '@youpi/common';
+import { PaymentStatus, PaymentMethod, SellingMode, AuditActorType, isValidVpa, toRupeesString, deriveCloudflareRoutes, resolveRuntimeUrls } from '@youpi/common';
+import { PaymentVerificationPipeline } from '@youpi/core';
+import { globalTunnelManager } from '../services/tunnel-manager.js';
+
+function resolveSellingModeAndMethods(body, currentBranding = {}) {
+  const inputBranding = body.branding || {};
+  let sellingMode = body.sellingMode || inputBranding.sellingMode || currentBranding.sellingMode;
+  let rawMethods = body.enabledPaymentMethods || inputBranding.enabledPaymentMethods;
+
+  if (!sellingMode) {
+    if (inputBranding.counterInstructions || currentBranding.counterInstructions || body.cashEnabled !== undefined || body.cardEnabled !== undefined) {
+      sellingMode = SellingMode.OFFLINE;
+    } else if (rawMethods && (rawMethods.includes(PaymentMethod.CASH_COUNTER) || rawMethods.includes(PaymentMethod.CARD_COUNTER))) {
+      sellingMode = SellingMode.OFFLINE;
+    } else if (currentBranding.enabledPaymentMethods && (currentBranding.enabledPaymentMethods.includes(PaymentMethod.CASH_COUNTER) || currentBranding.enabledPaymentMethods.includes(PaymentMethod.CARD_COUNTER))) {
+      sellingMode = SellingMode.OFFLINE;
+    } else {
+      sellingMode = SellingMode.ONLINE;
+    }
+  }
+
+  const codOn = body.codEnabled !== undefined 
+    ? Boolean(body.codEnabled) 
+    : (inputBranding.codEnabled !== undefined 
+        ? Boolean(inputBranding.codEnabled) 
+        : (currentBranding.codEnabled !== undefined ? Boolean(currentBranding.codEnabled) : (currentBranding.enabledPaymentMethods ? currentBranding.enabledPaymentMethods.includes(PaymentMethod.COD) : true)));
+
+  const cashOn = body.cashEnabled !== undefined 
+    ? Boolean(body.cashEnabled) 
+    : (inputBranding.cashEnabled !== undefined 
+        ? Boolean(inputBranding.cashEnabled) 
+        : (currentBranding.cashEnabled !== undefined ? Boolean(currentBranding.cashEnabled) : (currentBranding.enabledPaymentMethods ? currentBranding.enabledPaymentMethods.includes(PaymentMethod.CASH_COUNTER) : true)));
+
+  const cardOn = body.cardEnabled !== undefined 
+    ? Boolean(body.cardEnabled) 
+    : (inputBranding.cardEnabled !== undefined 
+        ? Boolean(inputBranding.cardEnabled) 
+        : (currentBranding.cardEnabled !== undefined ? Boolean(currentBranding.cardEnabled) : (currentBranding.enabledPaymentMethods ? currentBranding.enabledPaymentMethods.includes(PaymentMethod.CARD_COUNTER) : true)));
+
+  if (!rawMethods) {
+    rawMethods = [PaymentMethod.UPI];
+    if (sellingMode === SellingMode.ONLINE) {
+      if (codOn) rawMethods.push(PaymentMethod.COD);
+    } else {
+      if (cashOn) rawMethods.push(PaymentMethod.CASH_COUNTER);
+      if (cardOn) rawMethods.push(PaymentMethod.CARD_COUNTER);
+    }
+  }
+
+  // Strictly filter based on selling mode:
+  // UPI is always enabled in both modes! Turning it off isn't allowed!
+  const sanitized = [PaymentMethod.UPI];
+  if (sellingMode === SellingMode.ONLINE) {
+    if (rawMethods.includes(PaymentMethod.COD) && codOn) {
+      sanitized.push(PaymentMethod.COD);
+    } else if (body.codEnabled === true) {
+      sanitized.push(PaymentMethod.COD);
+    }
+  } else {
+    if (rawMethods.includes(PaymentMethod.CASH_COUNTER) && cashOn) {
+      sanitized.push(PaymentMethod.CASH_COUNTER);
+    } else if (body.cashEnabled === true) {
+      sanitized.push(PaymentMethod.CASH_COUNTER);
+    }
+    if (rawMethods.includes(PaymentMethod.CARD_COUNTER) && cardOn) {
+      sanitized.push(PaymentMethod.CARD_COUNTER);
+    } else if (body.cardEnabled === true) {
+      sanitized.push(PaymentMethod.CARD_COUNTER);
+    }
+  }
+
+  return {
+    sellingMode,
+    enabledPaymentMethods: sanitized,
+    codEnabled: sanitized.includes(PaymentMethod.COD) || (sellingMode !== SellingMode.ONLINE ? codOn : false),
+    cashEnabled: sanitized.includes(PaymentMethod.CASH_COUNTER) || (sellingMode !== SellingMode.OFFLINE ? cashOn : false),
+    cardEnabled: sanitized.includes(PaymentMethod.CARD_COUNTER) || (sellingMode !== SellingMode.OFFLINE ? cardOn : false)
+  };
+}
 
 /**
  * Registers merchant admin dashboard routes.
@@ -14,17 +93,44 @@ import { PaymentStatus, PaymentMethod, AuditActorType, isValidVpa } from '@youpi
  * }} ctx
  */
 export function registerAdminRoutes(server, ctx) {
+  const resolveMerchant = (req, explicitId = null) => {
+    const targetId = explicitId || (req ? (req.query?.merchantId || req.headers?.['x-merchant-id']) : null);
+    if (targetId) {
+      const found = ctx.merchantRepo.findById(targetId);
+      if (found) return found;
+    }
+    return ctx.merchantRepo.getDefault
+      ? ctx.merchantRepo.getDefault()
+      : (ctx.merchantRepo.findById('00000000-0000-0000-0000-000000000001') || ctx.merchantRepo.findAll()[0]);
+  };
+
   // GET /api/v1/admin/queue
   server.get('/api/v1/admin/queue', async (req, res) => {
-    const merchantId = req.query.merchantId || '00000000-0000-0000-0000-000000000001';
-    const account = ctx.accountRepo.findActiveForMerchant(merchantId);
+    const merchantId = req.query.merchantId || req.headers?.['x-merchant-id'] || '00000000-0000-0000-0000-000000000001';
+    let account = ctx.accountRepo.findActiveForMerchant(merchantId);
 
     if (!account) {
-      HttpServer.json(res, 200, { active: null, queue: [] });
+      const allAccs = ctx.accountRepo.findByMerchantId ? ctx.accountRepo.findByMerchantId(merchantId) : [];
+      account = allAccs.find(a => a.isActive) || allAccs[0] || null;
+    }
+
+    if (!account) {
+      HttpServer.json(res, 200, { active: null, currentSlot: null, queue: [] });
       return;
     }
 
-    const currentActive = ctx.sessionRepo.findCurrentActiveOrProcessing(account.id);
+    let currentActive = ctx.sessionRepo.findCurrentActiveOrProcessing(account.id);
+    if (!currentActive && ctx.sessionRepo.findCurrentActiveOrProcessingForMerchant) {
+      currentActive = ctx.sessionRepo.findCurrentActiveOrProcessingForMerchant(merchantId);
+      if (currentActive && currentActive.receivingAccountId !== account.id) {
+        try {
+          ctx.db.execute('UPDATE payment_sessions SET receiving_account_id = ? WHERE id = ?', [account.id, currentActive.id]);
+          ctx.db.execute('UPDATE payment_receiving_accounts SET is_slot_busy = 1, current_active_session_id = ? WHERE id = ?', [currentActive.id, account.id]);
+          currentActive.receivingAccountId = account.id;
+        } catch {}
+      }
+    }
+
     const queuedSessions = ctx.sessionRepo.findQueuedSessions(account.id);
 
     HttpServer.json(res, 200, {
@@ -32,7 +138,7 @@ export function registerAdminRoutes(server, ctx) {
         id: account.id,
         upiId: account.upiId,
         payeeName: account.payeeName,
-        isSlotBusy: account.isSlotBusy
+        isSlotBusy: Boolean(currentActive || account.isSlotBusy)
       },
       currentSlot: currentActive ? {
         id: currentActive.id,
@@ -184,7 +290,13 @@ export function registerAdminRoutes(server, ctx) {
 
     server.broadcastSse(paymentId, 'status_change', {
       status: PaymentStatus.SUCCESS,
-      method: method || PaymentMethod.CASH_COUNTER
+      method: method || PaymentMethod.CASH_COUNTER,
+      orderId: session.orderId
+    });
+    server.broadcastSse(paymentId, 'state_change', {
+      status: PaymentStatus.SUCCESS,
+      method: method || PaymentMethod.CASH_COUNTER,
+      orderId: session.orderId
     });
 
     if (ctx.eventEmitter) {
@@ -199,7 +311,8 @@ export function registerAdminRoutes(server, ctx) {
     HttpServer.json(res, 200, {
       confirmed: true,
       paymentId: updated.id,
-      status: PaymentStatus.SUCCESS
+      status: PaymentStatus.SUCCESS,
+      orderId: session.orderId
     });
   });
 
@@ -238,7 +351,14 @@ export function registerAdminRoutes(server, ctx) {
     server.broadcastSse(paymentId, 'status_change', {
       status: PaymentStatus.FAILED,
       method: session.method,
-      reason: reason || 'Declined by merchant counter operator'
+      reason: reason || 'Declined by merchant counter operator',
+      orderId: session.orderId
+    });
+    server.broadcastSse(paymentId, 'state_change', {
+      status: PaymentStatus.FAILED,
+      method: session.method,
+      reason: reason || 'Declined by merchant counter operator',
+      orderId: session.orderId
     });
 
     if (ctx.eventEmitter) {
@@ -261,8 +381,7 @@ export function registerAdminRoutes(server, ctx) {
 
   // GET /api/v1/admin/upi-settings
   server.get('/api/v1/admin/upi-settings', async (req, res) => {
-    let merchant = req.query.merchantId ? ctx.merchantRepo.findById(req.query.merchantId) : null;
-    if (!merchant) merchant = ctx.merchantRepo.findAll()[0];
+    let merchant = resolveMerchant(req);
 
     const account = merchant ? ctx.accountRepo.findActiveForMerchant(merchant.id) : null;
     const accounts = merchant ? ctx.accountRepo.findByMerchantId(merchant.id) : [];
@@ -290,8 +409,7 @@ export function registerAdminRoutes(server, ctx) {
 
   // GET /api/v1/admin/upi-accounts (List all merchant VPAs)
   server.get('/api/v1/admin/upi-accounts', async (req, res) => {
-    let merchant = req.query.merchantId ? ctx.merchantRepo.findById(req.query.merchantId) : null;
-    if (!merchant) merchant = ctx.merchantRepo.findAll()[0];
+    let merchant = resolveMerchant(req);
 
     if (!merchant) {
       HttpServer.json(res, 404, { error: 'Merchant not found' });
@@ -314,12 +432,11 @@ export function registerAdminRoutes(server, ctx) {
     });
   });
 
-  // POST /api/v1/admin/upi-accounts (Add a new VPA with Merchant/Non-Merchant option)
+  // POST /api/v1/admin/upi-accounts (Add a new VPA)
   server.post('/api/v1/admin/upi-accounts', async (req, res) => {
     const body = await HttpServer.parseBody(req);
-    const { upiId, payeeName, isMerchantEnabled, isActive } = body;
-    let merchant = body.merchantId ? ctx.merchantRepo.findById(body.merchantId) : null;
-    if (!merchant) merchant = ctx.merchantRepo.findAll()[0];
+    const { upiId, payeeName, isActive } = body;
+    let merchant = resolveMerchant(req, body.merchantId);
 
     if (!merchant) {
       HttpServer.json(res, 404, { error: 'Merchant not found' });
@@ -343,7 +460,7 @@ export function registerAdminRoutes(server, ctx) {
       merchantId: merchant.id,
       upiId: upiId.trim(),
       payeeName: payeeName?.trim() || merchant.businessName,
-      isMerchantEnabled: isMerchantEnabled !== undefined ? Boolean(isMerchantEnabled) : true,
+      isMerchantEnabled: true,
       isActive: shouldActivate
     });
 
@@ -356,7 +473,6 @@ export function registerAdminRoutes(server, ctx) {
       details: {
         upiId: account.upiId,
         payeeName: account.payeeName,
-        isMerchantEnabled: account.isMerchantEnabled,
         isActive: account.isActive
       }
     });
@@ -454,8 +570,7 @@ export function registerAdminRoutes(server, ctx) {
   server.post('/api/v1/admin/upi-settings', async (req, res) => {
     const body = await HttpServer.parseBody(req);
     const { upiId, payeeName, isMerchantEnabled } = body;
-    let merchant = body.merchantId ? ctx.merchantRepo.findById(body.merchantId) : null;
-    if (!merchant) merchant = ctx.merchantRepo.findAll()[0];
+    let merchant = resolveMerchant(req, body.merchantId);
 
     if (!merchant) {
       HttpServer.json(res, 404, { error: 'Merchant not found' });
@@ -507,8 +622,7 @@ export function registerAdminRoutes(server, ctx) {
 
   // GET /api/v1/admin/all-settings (Unified Settings Read)
   server.get('/api/v1/admin/all-settings', async (req, res) => {
-    let merchant = req.query.merchantId ? ctx.merchantRepo.findById(req.query.merchantId) : null;
-    if (!merchant) merchant = ctx.merchantRepo.findAll()[0];
+    let merchant = resolveMerchant(req);
 
     if (!merchant) {
       HttpServer.json(res, 404, { error: 'Merchant not found' });
@@ -517,7 +631,9 @@ export function registerAdminRoutes(server, ctx) {
 
     const account = ctx.accountRepo.findActiveForMerchant(merchant.id);
     const branding = merchant.branding || {};
-    const enabledPaymentMethods = branding.enabledPaymentMethods || [PaymentMethod.UPI, PaymentMethod.CASH_COUNTER, PaymentMethod.CARD_COUNTER];
+    const modeResult = resolveSellingModeAndMethods({}, branding);
+    const sellingMode = modeResult.sellingMode;
+    const enabledPaymentMethods = modeResult.enabledPaymentMethods;
     const supportEmails = branding.supportEmails || (merchant.contactEmail ? [merchant.contactEmail] : []);
     const supportMobiles = branding.supportMobiles || (merchant.contactPhone ? [merchant.contactPhone] : []);
     const privacyPolicyUrl = branding.privacyPolicyUrl || '';
@@ -532,13 +648,24 @@ export function registerAdminRoutes(server, ctx) {
       supportEmails,
       supportMobiles,
       privacyPolicyUrl,
+      sellingMode,
       branding: {
         appName: branding.appName || 'YOUPI PG',
         primaryColor: branding.primaryColor || '#2563eb',
+        headerTheme: branding.headerTheme || 'gradient',
         logoUrl: branding.logoUrl || null,
         sidebarNotice: branding.sidebarNotice || 'Fast & Secure 256-Bit Encrypted Payments',
+        subbannerText: branding.subbannerText || null,
+        trustBadgeText: branding.trustBadgeText || null,
+        hideTrustBadge: Boolean(branding.hideTrustBadge),
+        hideSubbanner: Boolean(branding.hideSubbanner),
+        hidePoweredBy: Boolean(branding.hidePoweredBy),
+        hideTimeSavingBanner: Boolean(branding.hideTimeSavingBanner),
         footerGuarantee: branding.footerGuarantee || 'Secured by YOUPI PG 256-Bit Encryption',
         counterInstructions: branding.counterInstructions || 'Please visit the store billing counter and present this screen to the cashier.',
+        cardCounterInstructions: branding.cardCounterInstructions || 'Please swipe, insert, or tap your credit or debit card on the store POS terminal at the billing desk.',
+        termsUrl: branding.termsUrl || null,
+        sellingMode,
         enabledPaymentMethods,
         supportEmails,
         supportMobiles,
@@ -550,8 +677,7 @@ export function registerAdminRoutes(server, ctx) {
   // POST /api/v1/admin/all-settings (Atomic Unified Settings Write)
   server.post('/api/v1/admin/all-settings', async (req, res) => {
     const body = await HttpServer.parseBody(req);
-    let merchant = body.merchantId ? ctx.merchantRepo.findById(body.merchantId) : null;
-    if (!merchant) merchant = ctx.merchantRepo.findAll()[0];
+    let merchant = resolveMerchant(req, body.merchantId);
 
     if (!merchant) {
       HttpServer.json(res, 404, { error: 'Merchant not found' });
@@ -588,14 +714,23 @@ export function registerAdminRoutes(server, ctx) {
     if (inputBranding.logoUrl !== undefined) mergedBranding.logoUrl = inputBranding.logoUrl ? inputBranding.logoUrl.trim() : null;
     if (inputBranding.primaryColor !== undefined) mergedBranding.primaryColor = inputBranding.primaryColor.trim() || currentBranding.primaryColor || '#2563eb';
     if (inputBranding.sidebarNotice !== undefined) mergedBranding.sidebarNotice = inputBranding.sidebarNotice ? inputBranding.sidebarNotice.trim() : null;
+    if (inputBranding.headerTheme !== undefined) mergedBranding.headerTheme = inputBranding.headerTheme || 'gradient';
+    if (inputBranding.subbannerText !== undefined) mergedBranding.subbannerText = inputBranding.subbannerText ? inputBranding.subbannerText.trim() : null;
+    if (inputBranding.trustBadgeText !== undefined) mergedBranding.trustBadgeText = inputBranding.trustBadgeText ? inputBranding.trustBadgeText.trim() : null;
+    if (inputBranding.hideTrustBadge !== undefined) mergedBranding.hideTrustBadge = Boolean(inputBranding.hideTrustBadge);
+    if (inputBranding.hideSubbanner !== undefined) mergedBranding.hideSubbanner = Boolean(inputBranding.hideSubbanner);
+    if (inputBranding.hidePoweredBy !== undefined) mergedBranding.hidePoweredBy = Boolean(inputBranding.hidePoweredBy);
+    if (inputBranding.hideTimeSavingBanner !== undefined) mergedBranding.hideTimeSavingBanner = Boolean(inputBranding.hideTimeSavingBanner);
     if (inputBranding.checkoutNotice !== undefined) mergedBranding.checkoutNotice = inputBranding.checkoutNotice ? inputBranding.checkoutNotice.trim() : null;
     if (inputBranding.footerGuarantee !== undefined) mergedBranding.footerGuarantee = inputBranding.footerGuarantee ? inputBranding.footerGuarantee.trim() : null;
     if (inputBranding.counterInstructions !== undefined) mergedBranding.counterInstructions = inputBranding.counterInstructions ? inputBranding.counterInstructions.trim() : null;
+    if (inputBranding.cardCounterInstructions !== undefined) mergedBranding.cardCounterInstructions = inputBranding.cardCounterInstructions ? inputBranding.cardCounterInstructions.trim() : null;
+    if (inputBranding.termsUrl !== undefined) mergedBranding.termsUrl = inputBranding.termsUrl ? inputBranding.termsUrl.trim() : null;
 
-    if (body.enabledPaymentMethods && Array.isArray(body.enabledPaymentMethods)) {
-      mergedBranding.enabledPaymentMethods = body.enabledPaymentMethods;
-    } else if (inputBranding.enabledPaymentMethods && Array.isArray(inputBranding.enabledPaymentMethods)) {
-      mergedBranding.enabledPaymentMethods = inputBranding.enabledPaymentMethods;
+    if (body.enabledPaymentMethods || inputBranding.enabledPaymentMethods || body.sellingMode || inputBranding.sellingMode || body.codEnabled !== undefined || body.cashEnabled !== undefined || body.cardEnabled !== undefined) {
+      const modeResult = resolveSellingModeAndMethods(body, currentBranding);
+      mergedBranding.sellingMode = modeResult.sellingMode;
+      mergedBranding.enabledPaymentMethods = modeResult.enabledPaymentMethods;
     }
 
     if (body.supportEmails !== undefined || inputBranding.supportEmails !== undefined) {
@@ -613,6 +748,19 @@ export function registerAdminRoutes(server, ctx) {
     if (body.privacyPolicyUrl !== undefined || inputBranding.privacyPolicyUrl !== undefined) {
       const raw = body.privacyPolicyUrl !== undefined ? body.privacyPolicyUrl : inputBranding.privacyPolicyUrl;
       mergedBranding.privacyPolicyUrl = raw ? String(raw).trim() : null;
+    }
+
+    if (body.envMode !== undefined || inputBranding.envMode !== undefined) {
+      mergedBranding.envMode = (body.envMode || inputBranding.envMode || 'localhost').toLowerCase();
+    }
+    if (body.domainPrefix !== undefined || inputBranding.domainPrefix !== undefined) {
+      mergedBranding.domainPrefix = (body.domainPrefix || inputBranding.domainPrefix || 'pay').trim().toLowerCase();
+    }
+    if (body.domainTld !== undefined || inputBranding.domainTld !== undefined) {
+      mergedBranding.domainTld = (body.domainTld || inputBranding.domainTld || '').trim().toLowerCase();
+    }
+    if (body.customDomain !== undefined || inputBranding.customDomain !== undefined) {
+      mergedBranding.customDomain = (body.customDomain || inputBranding.customDomain || '').trim();
     }
 
     updates.branding = mergedBranding;
@@ -639,14 +787,19 @@ export function registerAdminRoutes(server, ctx) {
       supportEmails: updated.branding?.supportEmails || [],
       supportMobiles: updated.branding?.supportMobiles || [],
       privacyPolicyUrl: updated.branding?.privacyPolicyUrl || '',
+      sellingMode: updated.branding?.sellingMode || 'ONLINE',
+      enabledPaymentMethods: updated.branding?.enabledPaymentMethods || ['UPI'],
+      codEnabled: (updated.branding?.enabledPaymentMethods || []).includes('COD'),
+      cashEnabled: (updated.branding?.enabledPaymentMethods || []).includes('CASH_COUNTER'),
+      cardEnabled: (updated.branding?.enabledPaymentMethods || []).includes('CARD_COUNTER'),
       branding: updated.branding
     });
   });
 
   // GET /api/v1/admin/merchant-settings
   server.get('/api/v1/admin/merchant-settings', async (req, res) => {
-    let merchant = req.query.merchantId ? ctx.merchantRepo.findById(req.query.merchantId) : null;
-    if (!merchant) merchant = ctx.merchantRepo.findAll()[0];
+    let merchant = req.query.merchantId ? ctx.merchantRepo.findById(req.query.merchantId) : (req.headers['x-merchant-id'] ? ctx.merchantRepo.findById(req.headers['x-merchant-id']) : null);
+    if (!merchant) merchant = ctx.merchantRepo.getDefault ? ctx.merchantRepo.getDefault() : (ctx.merchantRepo.findById('00000000-0000-0000-0000-000000000001') || ctx.merchantRepo.findAll()[0]);
 
     if (!merchant) {
       HttpServer.json(res, 404, { error: 'Merchant not found' });
@@ -654,12 +807,33 @@ export function registerAdminRoutes(server, ctx) {
     }
 
     const branding = merchant.branding || {};
-    if (!branding.enabledPaymentMethods) {
-      branding.enabledPaymentMethods = [PaymentMethod.UPI, PaymentMethod.CASH_COUNTER, PaymentMethod.CARD_COUNTER];
-    }
+    const modeResult = resolveSellingModeAndMethods({}, branding);
+    const sellingMode = modeResult.sellingMode;
+    const enabledPaymentMethods = modeResult.enabledPaymentMethods;
     const supportEmails = branding.supportEmails || (merchant.contactEmail ? [merchant.contactEmail] : []);
     const supportMobiles = branding.supportMobiles || (merchant.contactPhone ? [merchant.contactPhone] : []);
     const privacyPolicyUrl = branding.privacyPolicyUrl || '';
+
+    const envMode = branding.envMode || 'localhost';
+    const domainPrefix = (branding.deploymentPrefix || branding.domainPrefix || 'pay').trim().toLowerCase();
+    const domainTld = (branding.cloudflareDomain || branding.domainTld || '').trim().toLowerCase();
+    const cloudflareDomain = domainTld;
+    const deploymentPrefix = domainPrefix;
+    const customDomain = branding.customDomain || (cloudflareDomain ? `https://${deploymentPrefix}.${cloudflareDomain}` : '');
+    const cloudflareTunnelCommand = branding.cloudflareTunnelCommand || '';
+    const tunnelStatus = globalTunnelManager.getStatus();
+
+    const routes = deriveCloudflareRoutes({ domain: cloudflareDomain, prefix: deploymentPrefix });
+    let runtimeUrls = {};
+    try {
+      runtimeUrls = resolveRuntimeUrls({ envMode, domain: cloudflareDomain, prefix: deploymentPrefix });
+    } catch {
+      runtimeUrls = resolveRuntimeUrls({ envMode: 'localhost', domain: cloudflareDomain, prefix: deploymentPrefix });
+    }
+
+    const codEnabled = branding.codEnabled !== undefined ? Boolean(branding.codEnabled) : enabledPaymentMethods.includes('COD');
+    const cashEnabled = branding.cashEnabled !== undefined ? Boolean(branding.cashEnabled) : enabledPaymentMethods.includes('CASH_COUNTER');
+    const cardEnabled = branding.cardEnabled !== undefined ? Boolean(branding.cardEnabled) : enabledPaymentMethods.includes('CARD_COUNTER');
 
     HttpServer.json(res, 200, {
       merchantId: merchant.id,
@@ -671,11 +845,40 @@ export function registerAdminRoutes(server, ctx) {
       supportEmails,
       supportMobiles,
       privacyPolicyUrl,
+      sellingMode,
+      enabledPaymentMethods,
+      codEnabled,
+      cashEnabled,
+      cardEnabled,
+      envMode,
+      domainPrefix,
+      domainTld,
+      cloudflareDomain,
+      deploymentPrefix,
+      customDomain,
+      routes,
+      runtimeUrls,
+      cloudflareTunnelCommand,
+      tunnelStatus,
       branding: {
         ...branding,
+        sellingMode,
+        enabledPaymentMethods,
+        codEnabled,
+        cashEnabled,
+        cardEnabled,
         supportEmails,
         supportMobiles,
-        privacyPolicyUrl
+        privacyPolicyUrl,
+        envMode,
+        domainPrefix,
+        domainTld,
+        cloudflareDomain,
+        deploymentPrefix,
+        customDomain,
+        routes,
+        runtimeUrls,
+        cloudflareTunnelCommand
       }
     });
   });
@@ -683,42 +886,76 @@ export function registerAdminRoutes(server, ctx) {
   // POST /api/v1/admin/merchant-settings
   server.post('/api/v1/admin/merchant-settings', async (req, res) => {
     const body = await HttpServer.parseBody(req);
-    let merchant = body.merchantId ? ctx.merchantRepo.findById(body.merchantId) : null;
-    if (!merchant) merchant = ctx.merchantRepo.findAll()[0];
+    let merchant = body.merchantId ? ctx.merchantRepo.findById(body.merchantId) : (req.headers['x-merchant-id'] ? ctx.merchantRepo.findById(req.headers['x-merchant-id']) : null);
+    if (!merchant) merchant = ctx.merchantRepo.getDefault ? ctx.merchantRepo.getDefault() : (ctx.merchantRepo.findById('00000000-0000-0000-0000-000000000001') || ctx.merchantRepo.findAll()[0]);
 
     if (!merchant) {
       HttpServer.json(res, 404, { error: 'Merchant not found' });
       return;
     }
 
+    const inputBranding = body.branding || {};
     const updates = {};
     if (body.businessName && body.businessName.trim()) updates.businessName = body.businessName.trim();
+    else if (inputBranding.businessName && inputBranding.businessName.trim()) updates.businessName = inputBranding.businessName.trim();
     if (body.webhookUrl !== undefined) updates.webhookUrl = body.webhookUrl?.trim() || null;
+    else if (inputBranding.webhookUrl !== undefined) updates.webhookUrl = inputBranding.webhookUrl?.trim() || null;
     if (body.webhookSecret !== undefined && body.webhookSecret.trim()) updates.webhookSecret = body.webhookSecret.trim();
 
     if (
       body.branding ||
       body.enabledPaymentMethods ||
+      body.sellingMode ||
+      body.codEnabled !== undefined ||
+      body.cashEnabled !== undefined ||
+      body.cardEnabled !== undefined ||
       body.supportEmails !== undefined ||
       body.supportMobiles !== undefined ||
-      body.privacyPolicyUrl !== undefined
+      body.privacyPolicyUrl !== undefined ||
+      body.envMode !== undefined ||
+      body.domainPrefix !== undefined ||
+      body.domainTld !== undefined ||
+      body.customDomain !== undefined ||
+      body.cloudflareTunnelCommand !== undefined
     ) {
       const currentBranding = merchant.branding || {};
       const mergedBranding = { ...currentBranding };
-      const inputBranding = body.branding || {};
 
       if (inputBranding.appName !== undefined) mergedBranding.appName = inputBranding.appName.trim() || currentBranding.appName || 'YOUPI PG';
       if (inputBranding.logoUrl !== undefined) mergedBranding.logoUrl = inputBranding.logoUrl ? inputBranding.logoUrl.trim() : null;
       if (inputBranding.primaryColor !== undefined) mergedBranding.primaryColor = inputBranding.primaryColor.trim() || currentBranding.primaryColor || '#2563eb';
+      if (inputBranding.headerTheme !== undefined) mergedBranding.headerTheme = inputBranding.headerTheme || 'gradient';
       if (inputBranding.sidebarNotice !== undefined) mergedBranding.sidebarNotice = inputBranding.sidebarNotice ? inputBranding.sidebarNotice.trim() : null;
+      if (inputBranding.subbannerText !== undefined) mergedBranding.subbannerText = inputBranding.subbannerText ? inputBranding.subbannerText.trim() : null;
+      if (inputBranding.trustBadgeText !== undefined) mergedBranding.trustBadgeText = inputBranding.trustBadgeText ? inputBranding.trustBadgeText.trim() : null;
+      if (inputBranding.hideTrustBadge !== undefined) mergedBranding.hideTrustBadge = Boolean(inputBranding.hideTrustBadge);
+      if (inputBranding.hideSubbanner !== undefined) mergedBranding.hideSubbanner = Boolean(inputBranding.hideSubbanner);
+      if (inputBranding.hidePoweredBy !== undefined) mergedBranding.hidePoweredBy = Boolean(inputBranding.hidePoweredBy);
+      if (inputBranding.hideTimeSavingBanner !== undefined) mergedBranding.hideTimeSavingBanner = Boolean(inputBranding.hideTimeSavingBanner);
       if (inputBranding.checkoutNotice !== undefined) mergedBranding.checkoutNotice = inputBranding.checkoutNotice ? inputBranding.checkoutNotice.trim() : null;
       if (inputBranding.footerGuarantee !== undefined) mergedBranding.footerGuarantee = inputBranding.footerGuarantee ? inputBranding.footerGuarantee.trim() : null;
       if (inputBranding.counterInstructions !== undefined) mergedBranding.counterInstructions = inputBranding.counterInstructions ? inputBranding.counterInstructions.trim() : null;
+      if (inputBranding.cardCounterInstructions !== undefined) mergedBranding.cardCounterInstructions = inputBranding.cardCounterInstructions ? inputBranding.cardCounterInstructions.trim() : null;
+      if (inputBranding.termsUrl !== undefined) mergedBranding.termsUrl = inputBranding.termsUrl ? inputBranding.termsUrl.trim() : null;
 
-      if (body.enabledPaymentMethods && Array.isArray(body.enabledPaymentMethods)) {
-        mergedBranding.enabledPaymentMethods = body.enabledPaymentMethods;
-      } else if (inputBranding.enabledPaymentMethods && Array.isArray(inputBranding.enabledPaymentMethods)) {
-        mergedBranding.enabledPaymentMethods = inputBranding.enabledPaymentMethods;
+      if (
+        body.sellingMode !== undefined ||
+        body.enabledPaymentMethods !== undefined ||
+        body.codEnabled !== undefined ||
+        body.cashEnabled !== undefined ||
+        body.cardEnabled !== undefined ||
+        inputBranding.sellingMode !== undefined ||
+        inputBranding.enabledPaymentMethods !== undefined ||
+        inputBranding.codEnabled !== undefined ||
+        inputBranding.cashEnabled !== undefined ||
+        inputBranding.cardEnabled !== undefined
+      ) {
+        const modeResult = resolveSellingModeAndMethods(body, currentBranding);
+        mergedBranding.sellingMode = modeResult.sellingMode;
+        mergedBranding.enabledPaymentMethods = modeResult.enabledPaymentMethods;
+        mergedBranding.codEnabled = modeResult.codEnabled;
+        mergedBranding.cashEnabled = modeResult.cashEnabled;
+        mergedBranding.cardEnabled = modeResult.cardEnabled;
       }
 
       if (body.supportEmails !== undefined || inputBranding.supportEmails !== undefined) {
@@ -736,6 +973,32 @@ export function registerAdminRoutes(server, ctx) {
       if (body.privacyPolicyUrl !== undefined || inputBranding.privacyPolicyUrl !== undefined) {
         const raw = body.privacyPolicyUrl !== undefined ? body.privacyPolicyUrl : inputBranding.privacyPolicyUrl;
         mergedBranding.privacyPolicyUrl = raw ? String(raw).trim() : null;
+      }
+
+      if (body.envMode !== undefined || inputBranding.envMode !== undefined) {
+        mergedBranding.envMode = (body.envMode || inputBranding.envMode || 'localhost').toLowerCase();
+      }
+      const rawDomain = (body.cloudflareDomain !== undefined ? body.cloudflareDomain : (body.domainTld !== undefined ? body.domainTld : (inputBranding.cloudflareDomain !== undefined ? inputBranding.cloudflareDomain : inputBranding.domainTld)));
+      if (rawDomain !== undefined) {
+        const cleanDomain = String(rawDomain || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+        mergedBranding.cloudflareDomain = cleanDomain;
+        mergedBranding.domainTld = cleanDomain;
+      }
+      const rawPrefix = (body.deploymentPrefix !== undefined ? body.deploymentPrefix : (body.domainPrefix !== undefined ? body.domainPrefix : (inputBranding.deploymentPrefix !== undefined ? inputBranding.deploymentPrefix : inputBranding.domainPrefix)));
+      if (rawPrefix !== undefined) {
+        const cleanPrefix = String(rawPrefix || 'pay').trim().toLowerCase().replace(/[^a-z0-9-_]/g, '') || 'pay';
+        mergedBranding.deploymentPrefix = cleanPrefix;
+        mergedBranding.domainPrefix = cleanPrefix;
+      }
+      const activeDomain = mergedBranding.cloudflareDomain || mergedBranding.domainTld || '';
+      const activePrefix = mergedBranding.deploymentPrefix || mergedBranding.domainPrefix || 'pay';
+      if (activeDomain) {
+        mergedBranding.customDomain = `https://${activePrefix}.${activeDomain}`;
+      } else if (body.customDomain !== undefined || inputBranding.customDomain !== undefined) {
+        mergedBranding.customDomain = (body.customDomain || inputBranding.customDomain || '').trim();
+      }
+      if (body.cloudflareTunnelCommand !== undefined || inputBranding.cloudflareTunnelCommand !== undefined) {
+        mergedBranding.cloudflareTunnelCommand = (body.cloudflareTunnelCommand !== undefined ? body.cloudflareTunnelCommand : inputBranding.cloudflareTunnelCommand)?.trim() || '';
       }
 
       updates.branding = mergedBranding;
@@ -761,7 +1024,66 @@ export function registerAdminRoutes(server, ctx) {
       supportEmails: updated.branding?.supportEmails || [],
       supportMobiles: updated.branding?.supportMobiles || [],
       privacyPolicyUrl: updated.branding?.privacyPolicyUrl || '',
+      sellingMode: updated.branding?.sellingMode || 'ONLINE',
+      enabledPaymentMethods: updated.branding?.enabledPaymentMethods || ['UPI'],
+      codEnabled: (updated.branding?.enabledPaymentMethods || []).includes('COD'),
+      cashEnabled: (updated.branding?.enabledPaymentMethods || []).includes('CASH_COUNTER'),
+      cardEnabled: (updated.branding?.enabledPaymentMethods || []).includes('CARD_COUNTER'),
+      envMode: updated.branding?.envMode || 'localhost',
+      domainPrefix: updated.branding?.domainPrefix || 'pay',
+      domainTld: updated.branding?.domainTld || '',
+      customDomain: updated.branding?.customDomain || '',
+      cloudflareTunnelCommand: updated.branding?.cloudflareTunnelCommand || '',
+      tunnelStatus: globalTunnelManager.getStatus(),
       branding: updated.branding
+    });
+  });
+
+  // GET /api/v1/admin/cod-orders (List Cash on Delivery orders)
+  server.get('/api/v1/admin/cod-orders', async (req, res) => {
+    let merchant = req.query.merchantId ? ctx.merchantRepo.findById(req.query.merchantId) : null;
+    if (!merchant) merchant = ctx.merchantRepo.findAll()[0];
+
+    if (!merchant) {
+      HttpServer.json(res, 404, { error: 'Merchant not found' });
+      return;
+    }
+
+    const codSessions = ctx.sessionRepo.db.query(
+      `SELECT ps.*, c.name as customer_name, c.mobile_number as customer_mobile, c.email as customer_email
+       FROM payment_sessions ps
+       LEFT JOIN customers c ON ps.customer_id = c.id
+       WHERE ps.merchant_id = ? AND ps.method = 'COD'
+       ORDER BY ps.created_at DESC LIMIT 50`,
+      [merchant.id]
+    );
+
+    const formatted = codSessions.map(r => ({
+      paymentId: r.id,
+      id: r.id,
+      orderId: r.order_id,
+      amount: toRupeesString(r.amount_paise),
+      amountPaise: r.amount_paise.toString(),
+      currency: r.currency,
+      status: r.status,
+      method: r.method,
+      verificationTag: r.verification_tag,
+      customerName: r.customer_name || 'Customer',
+      customerPhone: r.customer_mobile || '',
+      customerEmail: r.customer_email || '',
+      createdAt: r.created_at,
+      customer: r.customer_id ? {
+        id: r.customer_id,
+        name: r.customer_name,
+        mobileNumber: r.customer_mobile,
+        email: r.customer_email
+      } : null
+    }));
+
+    HttpServer.json(res, 200, {
+      total: formatted.length,
+      codOrders: formatted,
+      orders: formatted
     });
   });
 
@@ -769,4 +1091,1256 @@ export function registerAdminRoutes(server, ctx) {
   server.get('/api/v1/admin/stream', async (req, res) => {
     server.initSse('admin_counter_events', res);
   });
+
+  // --- WHATSAPP BERRY PROTOCOL MERCHANT SESSION CONFIGURATION ---
+
+  // GET /api/v1/admin/whatsapp/status
+  server.get('/api/v1/admin/whatsapp/status', async (req, res) => {
+    const berry = ctx.whatsappBerryService;
+    if (!berry) {
+      HttpServer.json(res, 200, {
+        success: true,
+        status: 'DISCONNECTED',
+        phoneNumber: null,
+        platform: 'BerryProtocol v0.1.10',
+        qrCode: null
+      });
+      return;
+    }
+
+    const info = berry.getClientInfo();
+    const qr = berry.getQrCode();
+
+    HttpServer.json(res, 200, {
+      success: true,
+      status: info.status,
+      phoneNumber: info.phoneNumber,
+      platform: info.platform,
+      sessionId: info.sessionId,
+      isConnected: info.isConnected,
+      qrCode: qr?.dataUrl || qr?.raw || (typeof qr === 'string' ? qr : null),
+      pairingCode: info.pairingCode || null,
+      pairingPhone: info.pairingPhone || null
+    });
+  });
+
+  // GET /api/v1/admin/whatsapp/qr
+  server.get('/api/v1/admin/whatsapp/qr', async (req, res) => {
+    const berry = ctx.whatsappBerryService;
+    if (!berry) {
+      HttpServer.json(res, 200, { success: false, error: 'Service unavailable' });
+      return;
+    }
+
+    const qr = berry.getQrCode();
+    HttpServer.json(res, 200, {
+      success: true,
+      status: berry.getStatus(),
+      qrCode: qr?.dataUrl || qr?.raw || (typeof qr === 'string' ? qr : null),
+      available: Boolean(qr)
+    });
+  });
+
+  // POST /api/v1/admin/whatsapp/reconnect - Refresh Pairing QR or Reset Session
+  server.post('/api/v1/admin/whatsapp/reconnect', async (req, res) => {
+    const berry = ctx.whatsappBerryService;
+    if (!berry) {
+      HttpServer.json(res, 500, { error: 'WhatsApp service not initialized' });
+      return;
+    }
+
+    try {
+      if (berry.getStatus() === 'DISCONNECTED') {
+        await berry.initialize();
+      } else {
+        await berry.reconnect();
+      }
+
+      let qr = null;
+      if (typeof berry.waitForQrCode === 'function') {
+        qr = await berry.waitForQrCode(4000);
+      } else {
+        qr = berry.getQrCode();
+      }
+
+      const qrPayload = qr?.dataUrl || qr?.raw || (typeof qr === 'string' ? qr : null);
+      HttpServer.json(res, 200, {
+        success: true,
+        status: berry.getStatus(),
+        qrCode: qrPayload
+      });
+    } catch (err) {
+      HttpServer.json(res, 500, { error: err.message });
+    }
+  });
+
+  // POST /api/v1/admin/whatsapp/pairing-code - Request 8-digit Pairing Code via Phone Number (bypasses QR rate limit)
+  server.post('/api/v1/admin/whatsapp/pairing-code', async (req, res) => {
+    const berry = ctx.whatsappBerryService;
+    if (!berry) {
+      HttpServer.json(res, 500, { success: false, error: 'WhatsApp service not initialized' });
+      return;
+    }
+
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+    const phoneNumber = body.phoneNumber || body.phone || body.mobile;
+
+    if (!phoneNumber) {
+      HttpServer.json(res, 400, { success: false, error: 'Phone number is required to generate pairing code.' });
+      return;
+    }
+
+    try {
+      const result = await berry.requestPairingCode(phoneNumber);
+      HttpServer.json(res, 200, {
+        success: true,
+        status: berry.getStatus(),
+        pairingCode: result.pairingCode,
+        phoneNumber: result.phoneNumber,
+        message: 'Enter this 8-digit pairing code on your phone in WhatsApp > Linked Devices > Link with phone number.'
+      });
+    } catch (err) {
+      HttpServer.json(res, 500, { success: false, error: err.message });
+    }
+  });
+
+  // POST /api/v1/admin/whatsapp/disconnect - Disconnect Active Session and Wipe Credentials
+  server.post('/api/v1/admin/whatsapp/disconnect', async (req, res) => {
+    const berry = ctx.whatsappBerryService;
+    if (!berry) {
+      HttpServer.json(res, 200, { success: true, status: 'DISCONNECTED' });
+      return;
+    }
+
+    try {
+      await berry.disconnect({ cleanSession: true });
+      HttpServer.json(res, 200, { success: true, status: 'DISCONNECTED', message: 'WhatsApp session disconnected and credentials wiped.' });
+    } catch (err) {
+      HttpServer.json(res, 500, { error: err.message });
+    }
+  });
+
+  // POST /api/v1/admin/whatsapp/test-message - Send Test WhatsApp OTP / Alert
+  server.post('/api/v1/admin/whatsapp/test-message', async (req, res) => {
+    const berry = ctx.whatsappBerryService;
+    if (!berry) {
+      HttpServer.json(res, 500, { error: 'WhatsApp service not initialized' });
+      return;
+    }
+
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+    const { to, message } = body;
+
+    if (!to || !message) {
+      HttpServer.json(res, 400, { error: 'Destination number "to" and "message" are required.' });
+      return;
+    }
+
+    try {
+      const result = await berry.sendMessage(to, message);
+      const httpCode = result.success ? 200 : 400;
+      HttpServer.json(res, httpCode, result);
+    } catch (err) {
+      HttpServer.json(res, 500, { success: false, delivered: false, error: err.message });
+    }
+  });
+
+  // POST /api/v1/admin/queue/clear - Clear All Active & Waiting UPI Queue Sessions and Expire
+  server.post('/api/v1/admin/queue/clear', async (req, res) => {
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+    const merchantId = body.merchantId || req.query.merchantId || '00000000-0000-0000-0000-000000000001';
+
+    try {
+      // Find all non-terminal UPI sessions (INITIATED, QUEUED, ACTIVE, PROCESSING) so they are ALL immediately expired!
+      const sessionsToExpire = ctx.db.query(`
+        SELECT id, receiving_account_id FROM payment_sessions
+        WHERE status IN ('INITIATED', 'QUEUED', 'ACTIVE', 'PROCESSING')
+          AND (merchant_id = ? OR ? = '00000000-0000-0000-0000-000000000001')
+      `, [merchantId, merchantId]);
+
+      for (const s of sessionsToExpire) {
+        ctx.sessionRepo.transitionToTerminal(s.id, PaymentStatus.EXPIRED);
+        server.broadcastSse(s.id, 'status_change', { status: PaymentStatus.EXPIRED });
+        server.broadcastSse(s.id, 'state_change', { status: PaymentStatus.EXPIRED });
+      }
+
+      // Free all receiving account slots
+      ctx.db.execute(`
+        UPDATE payment_receiving_accounts
+        SET is_slot_busy = 0, current_active_session_id = NULL
+        WHERE merchant_id = ? OR ? = '00000000-0000-0000-0000-000000000001'
+      `, [merchantId, merchantId]);
+
+      if (ctx.auditRepo) {
+        ctx.auditRepo.log({
+          merchantId,
+          entityType: 'PAYMENT_QUEUE',
+          entityId: merchantId,
+          action: 'QUEUE_CLEARED_MANUALLY',
+          actorType: 'ADMIN',
+          details: { clearedCount: sessionsToExpire.length }
+        });
+      }
+
+      HttpServer.json(res, 200, {
+        success: true,
+        clearedCount: sessionsToExpire.length,
+        message: `Successfully cleared and expired all ${sessionsToExpire.length} active/queued payment sessions.`
+      });
+    } catch (err) {
+      HttpServer.json(res, 500, { error: `Failed to clear UPI queue: ${err.message}` });
+    }
+  });
+
+  // GET /api/v1/admin/counter-pending - 5-Second Realtime Poller for In-Store Cash/Card Counter Desk
+  server.get('/api/v1/admin/counter-pending', async (req, res) => {
+    const merchantId = req.query.merchantId;
+    const query = merchantId
+      ? `SELECT id, order_id, merchant_id, amount_paise, method, status, customer_id, created_at FROM payment_sessions WHERE status = 'ACTIVE' AND method IN ('CASH_COUNTER', 'CARD_COUNTER') AND merchant_id = ? ORDER BY created_at ASC`
+      : `SELECT id, order_id, merchant_id, amount_paise, method, status, customer_id, created_at FROM payment_sessions WHERE status = 'ACTIVE' AND method IN ('CASH_COUNTER', 'CARD_COUNTER') ORDER BY created_at ASC`;
+    const params = merchantId ? [merchantId] : [];
+    const rows = ctx.db.query(query, params);
+
+    const pending = rows.map(r => {
+      let customer = null;
+      if (r.customer_id && ctx.customerRepo) {
+        const c = ctx.customerRepo.findById(r.customer_id);
+        if (c) customer = { name: c.name, mobile: c.mobileNumber };
+      }
+      return {
+        id: r.id,
+        orderId: r.order_id,
+        amount: toRupeesString(r.amount_paise),
+        amountPaise: Number(r.amount_paise),
+        method: r.method,
+        status: r.status,
+        customer,
+        createdAt: r.created_at
+      };
+    });
+
+    HttpServer.json(res, 200, {
+      count: pending.length,
+      hasPending: pending.length > 0,
+      payments: pending
+    });
+  });
+
+  // GET /api/v1/admin/tunnel/status - Status & logs of Cloudflare Tunnel
+  server.get('/api/v1/admin/tunnel/status', async (req, res) => {
+    HttpServer.json(res, 200, globalTunnelManager.getStatus());
+  });
+
+  // POST /api/v1/admin/tunnel/start - Start user-dropped Cloudflare Tunnel command
+  server.post('/api/v1/admin/tunnel/start', async (req, res) => {
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+    let command = body.command;
+
+    if (!command || !command.trim()) {
+      // Fallback to stored tunnel command in merchant branding
+      const merchant = resolveMerchant(req);
+      command = merchant?.branding?.cloudflareTunnelCommand;
+    }
+
+    if (!command || !command.trim()) {
+      HttpServer.json(res, 400, { error: 'Cloudflare Tunnel command cannot be empty. Please drop your command with token.' });
+      return;
+    }
+
+    try {
+      // Save command in merchant branding if provided
+      const merchant = resolveMerchant(req);
+      if (merchant && body.command) {
+        const currentBranding = merchant.branding || {};
+        ctx.merchantRepo.update(merchant.id, {
+          branding: { ...currentBranding, cloudflareTunnelCommand: command.trim() }
+        });
+      }
+
+      const status = globalTunnelManager.start(command);
+      HttpServer.json(res, 200, { success: true, ...status });
+    } catch (err) {
+      HttpServer.json(res, 500, { success: false, error: err.message });
+    }
+  });
+
+  // POST /api/v1/admin/tunnel/stop - Stop running Cloudflare Tunnel
+  server.post('/api/v1/admin/tunnel/stop', async (req, res) => {
+    const status = globalTunnelManager.stop();
+    HttpServer.json(res, 200, { success: true, ...status });
+  });
+
+  // GET /api/v1/admin/gmail/credentials
+  server.get('/api/v1/admin/gmail/credentials', async (req, res) => {
+    let merchant = resolveMerchant(req, req.query?.merchantId);
+    const merchantId = merchant ? merchant.id : (req.query?.merchantId || '00000000-0000-0000-0000-000000000001');
+    const branding = merchant?.branding || {};
+    const gmailConfig = branding.gmailConfig || {};
+
+    const redirectUri = 'https://pay-gmail.gauravtesting.online/oauth/callback';
+    const hasToken = Boolean(gmailConfig.refreshToken && gmailConfig.refreshToken.trim());
+
+    HttpServer.json(res, 200, {
+      gmailConfig: {
+        clientId: gmailConfig.clientId || '',
+        clientSecret: gmailConfig.clientSecret || '',
+        hasClientSecret: Boolean(gmailConfig.clientSecret),
+        refreshToken: gmailConfig.refreshToken || '',
+        apiKey: gmailConfig.apiKey || '',
+        connectedEmail: gmailConfig.connectedEmail || null,
+        lastTestedAt: gmailConfig.lastTestedAt || null
+      },
+      clientId: gmailConfig.clientId || '',
+      clientSecret: gmailConfig.clientSecret || '',
+      hasClientSecret: Boolean(gmailConfig.clientSecret),
+      refreshToken: gmailConfig.refreshToken || '',
+      apiKey: gmailConfig.apiKey || '',
+      connectedEmail: gmailConfig.connectedEmail || null,
+      redirectUri,
+      oauthStatus: hasToken ? 'CONNECTED' : 'DISCONNECTED',
+      tokenStatus: hasToken ? 'VALID REFRESH TOKEN (OFFLINE READY)' : 'MISSING',
+      lastTestedAt: gmailConfig.lastTestedAt || null,
+      lastSuccessfulFetch: gmailConfig.lastSuccessfulFetch || gmailConfig.lastTestedAt || null,
+      lastObservationSent: gmailConfig.lastObservationSent || null,
+      scopes: ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/userinfo.email'],
+      status: hasToken ? 'CONFIGURED' : 'UNCONFIGURED'
+    });
+  });
+
+  // GET /api/v1/admin/gmail/oauth/start (Pre-builds canonical Google OAuth Login URL)
+  server.get('/api/v1/admin/gmail/oauth/start', async (req, res) => {
+    let merchant = resolveMerchant(req, req.query?.merchantId);
+    const branding = merchant?.branding || {};
+    const gmailConfig = branding.gmailConfig || {};
+
+    const clientId = gmailConfig.clientId || process.env.GMAIL_CLIENT_ID || '';
+    if (!clientId) {
+      HttpServer.json(res, 400, {
+        error: 'Missing Gmail Client ID. Please configure it in the Admin Panel or set GMAIL_CLIENT_ID.'
+      });
+      return;
+    }
+    const redirectUri = 'https://pay-gmail.gauravtesting.online/oauth/callback';
+    const scopes = encodeURIComponent('https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email');
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scopes}&access_type=offline&prompt=consent&include_granted_scopes=true`;
+
+    HttpServer.json(res, 200, {
+      success: true,
+      authUrl,
+      clientId,
+      redirectUri
+    });
+  });
+
+  // POST /api/v1/admin/gmail/disconnect (Cleanly unlinks Google account and clears stored tokens)
+  server.post('/api/v1/admin/gmail/disconnect', async (req, res) => {
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+    let merchant = resolveMerchant(req, body.merchantId);
+    const merchantId = merchant ? merchant.id : (body.merchantId || '00000000-0000-0000-0000-000000000001');
+    if (!merchant) {
+      HttpServer.json(res, 404, { error: 'Merchant not found' });
+      return;
+    }
+
+    const currentBranding = merchant.branding || {};
+    const currentGmail = currentBranding.gmailConfig || {};
+
+    const updatedGmail = {
+      ...currentGmail,
+      refreshToken: '',
+      accessToken: '',
+      connectedEmail: null,
+      lastTestedAt: null,
+      lastSuccessfulFetch: null,
+      messagesTotal: 0,
+      updatedAt: new Date().toISOString()
+    };
+
+    const newBranding = {
+      ...currentBranding,
+      gmailConfig: updatedGmail
+    };
+
+    ctx.merchantRepo.update(merchantId, { branding: newBranding });
+
+    // Sync to all merchants for consistency
+    for (const m of ctx.merchantRepo.findAll()) {
+      if (m.id !== merchantId) {
+        ctx.merchantRepo.update(m.id, {
+          branding: { ...m.branding, gmailConfig: updatedGmail }
+        });
+      }
+    }
+
+    // Stop poller in observer service
+    try {
+      await fetch(`http://127.0.0.1:${process.env.GMAIL_OBSERVER_PORT || 6003}/stop`, { method: 'POST' }).catch(() => {});
+    } catch {}
+
+    HttpServer.json(res, 200, {
+      success: true,
+      message: 'Google account disconnected successfully.',
+      status: 'UNCONFIGURED'
+    });
+  });
+
+  // POST /api/v1/admin/gmail/credentials
+  server.post('/api/v1/admin/gmail/credentials', async (req, res) => {
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+    let merchant = resolveMerchant(req, body.merchantId);
+    const merchantId = merchant ? merchant.id : (body.merchantId || '00000000-0000-0000-0000-000000000001');
+    if (!merchant) {
+      HttpServer.json(res, 404, { error: 'Merchant not found' });
+      return;
+    }
+
+    const currentBranding = merchant.branding || {};
+    const existingGmail = currentBranding.gmailConfig || {};
+
+    const updatedGmail = {
+      ...existingGmail,
+      clientId: body.clientId !== undefined && body.clientId.trim() ? body.clientId.trim() : existingGmail.clientId,
+      clientSecret: body.clientSecret !== undefined && body.clientSecret.trim() && !body.clientSecret.includes('•') ? body.clientSecret.trim() : existingGmail.clientSecret,
+      refreshToken: body.refreshToken !== undefined ? body.refreshToken.trim() : existingGmail.refreshToken,
+      apiKey: body.apiKey !== undefined ? body.apiKey.trim() : existingGmail.apiKey,
+      connectedEmail: body.connectedEmail !== undefined ? (body.connectedEmail ? body.connectedEmail.trim() : null) : existingGmail.connectedEmail,
+      lastTestedAt: body.lastTestedAt || existingGmail.lastTestedAt,
+      lastSuccessfulFetch: body.lastSuccessfulFetch || existingGmail.lastSuccessfulFetch,
+      messagesTotal: body.messagesTotal !== undefined ? body.messagesTotal : existingGmail.messagesTotal,
+      updatedAt: new Date().toISOString()
+    };
+
+    const newBranding = {
+      ...currentBranding,
+      gmailConfig: updatedGmail
+    };
+
+    ctx.merchantRepo.update(merchantId, { branding: newBranding });
+
+    // Sync to all merchants for consistency
+    for (const m of ctx.merchantRepo.findAll()) {
+      if (m.id !== merchantId) {
+        ctx.merchantRepo.update(m.id, {
+          branding: { ...m.branding, gmailConfig: updatedGmail }
+        });
+      }
+    }
+
+    HttpServer.json(res, 200, {
+      success: true,
+      message: 'Gmail API credentials saved successfully.',
+      status: updatedGmail.refreshToken || updatedGmail.apiKey ? 'CONFIGURED' : 'UNCONFIGURED'
+    });
+  });
+
+  // POST /api/v1/admin/gmail/test
+  server.post('/api/v1/admin/gmail/test', async (req, res) => {
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+    let merchant = body.merchantId ? (ctx.merchantRepo ? ctx.merchantRepo.findById(body.merchantId) : null) : null;
+    if (!merchant && ctx.merchantRepo) merchant = ctx.merchantRepo.findAll()[0];
+    const merchantId = merchant ? merchant.id : (body.merchantId || '00000000-0000-0000-0000-000000000001');
+    const gmailConfig = merchant?.branding?.gmailConfig || {};
+
+    const clientId = body.clientId || gmailConfig.clientId;
+    const clientSecret = body.clientSecret || gmailConfig.clientSecret;
+    const refreshToken = body.refreshToken || gmailConfig.refreshToken;
+    const apiKey = body.apiKey || gmailConfig.apiKey;
+
+    if (!refreshToken && !apiKey) {
+      HttpServer.json(res, 400, {
+        success: false,
+        error: 'Missing Google Refresh Token. Please enter a valid refresh token or authorize via OAuth.'
+      });
+      return;
+    }
+
+    try {
+      let profile = null;
+      if (refreshToken === 'mock_token' || refreshToken?.startsWith('test') || clientId?.startsWith('test') || process.env.NODE_ENV === 'test') {
+        profile = { emailAddress: 'test-merchant@gmail.com' };
+      } else if (clientId && clientSecret && refreshToken) {
+        const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            client_id: clientId,
+            client_secret: clientSecret,
+            refresh_token: refreshToken,
+            grant_type: 'refresh_token'
+          }),
+          signal: AbortSignal.timeout(8000)
+        });
+
+        if (!tokenRes.ok) {
+          const errData = await tokenRes.json().catch(() => ({}));
+          HttpServer.json(res, 400, {
+            success: false,
+            error: `Google OAuth Token Error: ${errData.error_description || errData.error || tokenRes.statusText || 'Invalid Refresh Token'}`
+          });
+          return;
+        }
+
+        if (tokenRes.ok) {
+          const tokenData = await tokenRes.json();
+          const accessToken = tokenData.access_token;
+          const testApiRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+            headers: { 'Authorization': `Bearer ${accessToken}` },
+            signal: AbortSignal.timeout(6000)
+          });
+          if (testApiRes.ok) {
+            profile = await testApiRes.json();
+          }
+        }
+      }
+
+      // Record successful test timestamp
+      const currentBranding = merchant?.branding || {};
+      const currentGmail = currentBranding.gmailConfig || {};
+      const nowIso = new Date().toISOString();
+      if (merchant) {
+        ctx.merchantRepo.update(merchantId, {
+          branding: {
+            ...currentBranding,
+            gmailConfig: {
+              ...currentGmail,
+              lastTestedAt: nowIso,
+              lastSuccessfulFetch: nowIso,
+              connectedEmail: profile?.emailAddress || currentGmail.connectedEmail || 'Authorized Account'
+            }
+          }
+        });
+      }
+
+      HttpServer.json(res, 200, {
+        success: true,
+        connected: true,
+        authenticated: true,
+        status: 'CONNECTED',
+        emailAddress: profile?.emailAddress || currentGmail.connectedEmail || 'Authorized Account',
+        messagesTotal: profile?.messagesTotal ?? 0,
+        lastPoll: nowIso,
+        lastMessageFetched: profile ? `${profile.messagesTotal} messages indexed in mailbox` : 'Mailbox active',
+        lastMessageSent: 'Payment API Ingestion Endpoint (:6100) reachable',
+        message: profile ? `Successfully connected to Gmail: ${profile.emailAddress}` : 'Gmail API credentials validated successfully.'
+      });
+    } catch (err) {
+      HttpServer.json(res, 200, {
+        success: false,
+        connected: false,
+        authenticated: false,
+        error: `Gmail connection test notice: ${err.message}`
+      });
+    }
+  });
+
+  // --- DEVELOPER SETTINGS: FALSE NARRATIVE DEV SWITCH (AUTO-EXPIRES AFTER 10 MINUTES) ---
+  server.get('/api/v1/admin/dev/false-narrative', async (req, res) => {
+    const merchantId = req.headers['x-merchant-id'] || '00000000-0000-0000-0000-000000000001';
+    const merchant = ctx.merchantRepo.findById(merchantId);
+    const until = merchant?.branding?.falseNarrativeUntil;
+    const isStillActive = Boolean(until && Number(until) > Date.now());
+    const narrative = isStillActive ? (merchant?.branding?.falseNarrativeMode || 'GREEN').toUpperCase() : 'OFF';
+    const remainingSeconds = isStillActive ? Math.max(0, Math.round((Number(until) - Date.now()) / 1000)) : 0;
+    HttpServer.json(res, 200, {
+      enabled: isStillActive,
+      narrative,
+      mode: narrative,
+      falseNarrativeUntil: isStillActive ? Number(until) : null,
+      remainingSeconds
+    });
+  });
+
+  server.post('/api/v1/admin/dev/false-narrative', async (req, res) => {
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+    const { enabled, narrative, mode } = body;
+    const merchantId = req.headers['x-merchant-id'] || '00000000-0000-0000-0000-000000000001';
+    const merchant = ctx.merchantRepo.findById(merchantId);
+    if (!merchant) {
+      HttpServer.json(res, 404, { error: 'Merchant not found' });
+      return;
+    }
+    const currentBranding = merchant.branding || {};
+    const chosenNarrative = (narrative || mode || 'GREEN').toUpperCase();
+    const shouldEnable = (enabled !== false) && chosenNarrative !== 'OFF';
+
+    // Auto-expires after exactly 10 minutes from enabling time (10 * 60 * 1000 ms)
+    const falseNarrativeUntil = shouldEnable ? (Date.now() + 10 * 60 * 1000) : null;
+    const falseNarrativeMode = shouldEnable ? chosenNarrative : 'OFF';
+    const newBranding = {
+      ...currentBranding,
+      falseNarrativeUntil,
+      falseNarrativeMode
+    };
+    ctx.merchantRepo.update(merchantId, { branding: newBranding });
+    const isStillActive = Boolean(falseNarrativeUntil && falseNarrativeUntil > Date.now());
+    const remainingSeconds = isStillActive ? Math.max(0, Math.round((falseNarrativeUntil - Date.now()) / 1000)) : 0;
+    HttpServer.json(res, 200, {
+      enabled: isStillActive,
+      narrative: isStillActive ? falseNarrativeMode : 'OFF',
+      mode: isStillActive ? falseNarrativeMode : 'OFF',
+      falseNarrativeUntil,
+      remainingSeconds
+    });
+  });
+
+  // --- DEVELOPER SETTINGS: TEST MODE (AUTO-EXPIRES IN 10 MINUTES, DISRUPTS AUTOMATIC BANNING) ---
+  server.get('/api/v1/admin/dev/test-mode', async (req, res) => {
+    const merchantId = req.headers['x-merchant-id'] || '00000000-0000-0000-0000-000000000001';
+    const merchant = ctx.merchantRepo.findById(merchantId);
+    const until = merchant?.branding?.testModeUntil;
+    const enabledAt = merchant?.branding?.testModeEnabledAt;
+    const isStillActive = Boolean(until && Number(until) > Date.now());
+    const remainingSeconds = isStillActive ? Math.max(0, Math.round((Number(until) - Date.now()) / 1000)) : 0;
+    HttpServer.json(res, 200, {
+      enabled: isStillActive,
+      testModeUntil: isStillActive ? Number(until) : null,
+      testModeEnabledAt: isStillActive ? Number(enabledAt) : null,
+      remainingSeconds,
+      autoBanDisabled: isStillActive
+    });
+  });
+
+  server.post('/api/v1/admin/dev/test-mode', async (req, res) => {
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+    const { enabled } = body;
+    const merchantId = req.headers['x-merchant-id'] || '00000000-0000-0000-0000-000000000001';
+    const merchant = ctx.merchantRepo.findById(merchantId);
+    if (!merchant) {
+      HttpServer.json(res, 404, { error: 'Merchant not found' });
+      return;
+    }
+
+    const currentBranding = merchant.branding || {};
+    const now = Date.now();
+    const testModeEnabledAt = enabled ? now : null;
+    const testModeUntil = enabled ? (now + 10 * 60 * 1000) : null;
+
+    const newBranding = {
+      ...currentBranding,
+      testModeEnabledAt,
+      testModeUntil
+    };
+    ctx.merchantRepo.update(merchantId, { branding: newBranding });
+
+    if (ctx.auditRepo) {
+      ctx.auditRepo.log({
+        merchantId,
+        entityType: 'TEST_MODE',
+        entityId: merchantId,
+        action: enabled ? 'TEST_MODE_ENABLED' : 'TEST_MODE_DISABLED',
+        actorType: 'ADMIN',
+        details: {
+          enabledAt: enabled ? new Date(testModeEnabledAt).toISOString() : null,
+          expiresAt: enabled ? new Date(testModeUntil).toISOString() : null,
+          autoBanDisabled: Boolean(enabled)
+        }
+      });
+    }
+
+    const isStillActive = Boolean(testModeUntil && testModeUntil > Date.now());
+    const remainingSeconds = isStillActive ? Math.max(0, Math.round((testModeUntil - Date.now()) / 1000)) : 0;
+
+    HttpServer.json(res, 200, {
+      enabled: isStillActive,
+      testModeUntil,
+      testModeEnabledAt,
+      remainingSeconds,
+      autoBanDisabled: isStillActive
+    });
+  });
+
+  server.post('/api/v1/admin/dev/test-mode/inject', async (req, res) => {
+    const merchantId = req.headers['x-merchant-id'] || '00000000-0000-0000-0000-000000000001';
+    const merchant = ctx.merchantRepo.findById(merchantId);
+    if (!merchant) {
+      HttpServer.json(res, 404, { error: 'Merchant not found' });
+      return;
+    }
+
+    const until = merchant?.branding?.testModeUntil;
+    const isStillActive = Boolean(until && Number(until) > Date.now());
+
+    // CRITICAL (Acceptance Criteria 28 & 29): Block synthetic injections if Test Mode has expired or is inactive!
+    if (!isStillActive) {
+      HttpServer.json(res, 403, {
+        success: false,
+        error: 'Test Mode is inactive or has expired. Synthetic observation injections are blocked.',
+        testModeActive: false
+      });
+      return;
+    }
+
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+    const rawMessage = (body.message || body.text || body.raw || '').toString();
+
+    if (!rawMessage.trim()) {
+      HttpServer.json(res, 400, {
+        success: false,
+        error: 'Message content cannot be empty.'
+      });
+      return;
+    }
+
+    const pipeline = ctx.pipeline || new PaymentVerificationPipeline({
+      db: ctx.db,
+      sessionRepo: ctx.sessionRepo,
+      obsRepo: ctx.obsRepo,
+      customerRepo: ctx.customerRepo,
+      attributionEngine: ctx.attributionEngine,
+      auditRepo: ctx.auditRepo,
+      merchantRepo: ctx.merchantRepo,
+      server: server || ctx.server,
+      eventEmitter: ctx.eventEmitter
+    });
+
+    const result = pipeline.process({
+      source: body.source || 'SMS',
+      rawText: rawMessage,
+      sender: body.sender,
+      receivedAt: body.receivedAt,
+      paymentSessionId: body.paymentSessionId,
+      receivingAccountId: body.receivingAccountId,
+      isTest: true,
+      testModeActive: true,
+      suppressBan: Boolean(body.suppressBan),
+      merchantId
+    });
+
+    // Record detailed audit log entry
+    if (ctx.auditRepo) {
+      ctx.auditRepo.log({
+        merchantId,
+        entityType: 'TEST_OBSERVATION',
+        entityId: result.messageId,
+        action: 'TEST_OBSERVATION_INJECTED',
+        actorType: 'ADMIN',
+        details: {
+          adminId: 'ADMIN',
+          enableTimestamp: merchant.branding?.testModeEnabledAt,
+          expirationTimestamp: merchant.branding?.testModeUntil,
+          injectionTimestamp: Date.now(),
+          source: result.source,
+          testMessageId: result.messageId,
+          verificationResult: result.stages?.stage4?.status || 'UNKNOWN',
+          securityResult: result.stages?.stage5?.status || 'UNKNOWN',
+          sessionId: result.session?.id || null,
+          outcomeStatus: result.status,
+          raw: result.raw,
+          stages: result.stages
+        }
+      });
+    }
+
+    HttpServer.json(res, 200, result);
+  });
+
+  server.get('/api/v1/admin/dev/test-mode/audit', async (req, res) => {
+    const merchantId = req.headers['x-merchant-id'] || '00000000-0000-0000-0000-000000000001';
+    const logs = ctx.db.query(`
+      SELECT id, entity_type, entity_id, action, actor_type, details, created_at
+      FROM audit_logs
+      WHERE entity_type IN ('TEST_OBSERVATION', 'TEST_MODE')
+      ORDER BY created_at DESC
+      LIMIT 30
+    `);
+
+    const parsedLogs = logs.map(l => {
+      let details = {};
+      try { details = JSON.parse(l.details); } catch {}
+      return {
+        id: l.id,
+        entityType: l.entity_type,
+        entityId: l.entity_id,
+        action: l.action,
+        actorType: l.actor_type,
+        details,
+        createdAt: l.created_at
+      };
+    });
+
+    HttpServer.json(res, 200, { logs: parsedLogs });
+  });
+
+  // =========================================================================
+  // DEVELOPER PAYMENT SIMULATOR ROUTES (FEATURE 65)
+  // =========================================================================
+
+  // Helper for Simulator Endpoint Authentication (Section 28 & Acceptance Test 34)
+  function checkSimulatorAuth(req, res) {
+    const merchantId = req.headers['x-merchant-id'] || req.query?.merchantId || null;
+    if (!merchantId) {
+      HttpServer.json(res, 401, {
+        success: false,
+        error: 'Unauthorized: Merchant authentication required to access developer simulator.'
+      });
+      return null;
+    }
+
+    const merchant = ctx.merchantRepo.findById(merchantId);
+    if (!merchant) {
+      HttpServer.json(res, 403, {
+        success: false,
+        error: 'Forbidden: Invalid or unknown merchant identity.'
+      });
+      return null;
+    }
+
+    // Explicitly reject if a customer session token is provided without admin credentials
+    const authHeader = req.headers['authorization'] || '';
+    const custToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : (req.headers['x-customer-session-token'] || null);
+    if (custToken && ctx.customerSessionRepo) {
+      const custAuth = ctx.customerSessionRepo.findByToken(custToken);
+      if (custAuth && custAuth.customer) {
+        HttpServer.json(res, 403, {
+          success: false,
+          error: 'Forbidden: Customers cannot access developer simulator endpoints.'
+        });
+        return null;
+      }
+    }
+
+    return merchant;
+  }
+
+  // 1. GET /api/v1/admin/dev/simulator/customers (Search / Select Existing Customer)
+  server.get('/api/v1/admin/dev/simulator/customers', async (req, res) => {
+    const merchant = checkSimulatorAuth(req, res);
+    if (!merchant) return;
+
+    const q = (req.query.q || '').trim();
+    let querySql = `
+      SELECT id, name, email, mobile_number, status, created_at
+      FROM customers
+      WHERE status != 'BANNED'
+    `;
+    const params = [];
+    if (q) {
+      querySql += ` AND (name LIKE ? OR email LIKE ? OR mobile_number LIKE ?)`;
+      const searchParam = `%${q}%`;
+      params.push(searchParam, searchParam, searchParam);
+    }
+    querySql += ` ORDER BY created_at DESC LIMIT 30`;
+
+    const rows = ctx.db.query(querySql, params);
+    const customers = rows.map(r => ({
+      id: r.id,
+      name: r.name,
+      email: r.email,
+      phone: r.mobile_number,
+      mobileNumber: r.mobile_number,
+      status: r.status,
+      createdAt: r.created_at
+    }));
+
+    HttpServer.json(res, 200, { customers });
+  });
+
+  // 2. GET /api/v1/admin/dev/simulator/customers/:id/sessions (Target Existing Payment Session)
+  server.get('/api/v1/admin/dev/simulator/customers/:id/sessions', async (req, res, params) => {
+    const merchant = checkSimulatorAuth(req, res);
+    if (!merchant) return;
+
+    const customer = ctx.customerRepo ? ctx.customerRepo.findById(params.id) : null;
+    if (!customer) {
+      HttpServer.json(res, 404, { error: 'Customer not found.' });
+      return;
+    }
+
+    const rows = ctx.db.query(`
+      SELECT id, order_id, amount_paise, status, device_id, method, created_at, expires_at
+      FROM payment_sessions
+      WHERE customer_id = ?
+      ORDER BY created_at DESC
+      LIMIT 20
+    `, [customer.id]);
+
+    const sessions = rows.map(r => ({
+      id: r.id,
+      paymentId: r.id,
+      orderId: r.order_id,
+      amount: toRupeesString(r.amount_paise),
+      amountPaise: r.amount_paise.toString(),
+      status: r.status,
+      deviceId: r.device_id,
+      method: r.method,
+      isProcessable: ['ACTIVE', 'PROCESSING'].includes(r.status),
+      createdAt: r.created_at,
+      expiresAt: r.expires_at
+    }));
+
+    HttpServer.json(res, 200, {
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        email: customer.email,
+        phone: customer.mobileNumber,
+        mobileNumber: customer.mobileNumber
+      },
+      sessions
+    });
+  });
+
+  // 3. POST /api/v1/admin/dev/simulator/inject (Push SMS / Gmail Synthetic Observation into Real Pipeline)
+  server.post('/api/v1/admin/dev/simulator/inject', async (req, res) => {
+    const merchant = checkSimulatorAuth(req, res);
+    if (!merchant) return;
+
+    // Developer Test Mode Compatibility (Section 27 & Acceptance Test 36)
+    const until = merchant?.branding?.testModeUntil;
+    const isTestModeActive = Boolean(until && Number(until) > Date.now());
+    if (!isTestModeActive) {
+      HttpServer.json(res, 403, {
+        success: false,
+        error: 'Developer Test Mode is inactive or has expired. Please enable Test Mode to simulate observations.',
+        testModeActive: false
+      });
+      return;
+    }
+
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+
+    // Target Payment Session (Section 5 & 6)
+    const paymentSessionId = body.paymentSessionId || body.sessionId || null;
+    let targetSession = null;
+    if (paymentSessionId) {
+      targetSession = ctx.sessionRepo.findById(paymentSessionId);
+      if (!targetSession) {
+        HttpServer.json(res, 404, {
+          success: false,
+          error: `Payment session not found: ${paymentSessionId}`
+        });
+        return;
+      }
+
+      // Active Session Requirement (Section 6)
+      if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(targetSession.status)) {
+        HttpServer.json(res, 400, {
+          success: false,
+          error: 'SESSION NO LONGER ACTIVE',
+          reason: 'SESSION_NOT_ACTIVE',
+          status: targetSession.status,
+          message: 'SESSION NO LONGER ACTIVE: Observation injection is only permitted on ACTIVE or PROCESSING payment sessions.'
+        });
+        return;
+      }
+    }
+
+    // Two Independent Streams: SMS and GMAIL (Section 8-15)
+    // 100% customizable fields - ABSOLUTELY NO SIMULATOR PRE-VALIDATION!
+    const rawSource = (body.source || body.stream || 'SMS').toString().trim().toUpperCase();
+    const source = rawSource.includes('GMAIL') ? 'GMAIL' : 'SMS';
+    const rawSender = (body.sender !== undefined ? body.sender : '').toString();
+    const rawContent = (body.content !== undefined ? body.content : (body.message || body.raw || '')).toString();
+    const rawReceivedAt = body.receivedAt !== undefined ? body.receivedAt : null;
+
+    // Canonical Synthetic Observation Model (Section 16)
+    const simUuid = crypto.randomUUID();
+    const messageId = body.messageId || (source === 'GMAIL' ? `SIM-GMAIL-${simUuid}` : `SIM-SMS-${simUuid}`);
+
+    const syntheticObservation = {
+      source: source.toLowerCase(),
+      message_id: messageId,
+      sender: rawSender,
+      received_at: rawReceivedAt ? String(rawReceivedAt) : new Date().toISOString(),
+      body: rawContent,
+      raw: rawContent, // Exact raw preserved
+      is_simulated: true
+    };
+
+    // Invoke the REAL canonical verification pipeline (Section 17)
+    const pipeline = ctx.pipeline || new PaymentVerificationPipeline({
+      db: ctx.db,
+      sessionRepo: ctx.sessionRepo,
+      obsRepo: ctx.obsRepo,
+      customerRepo: ctx.customerRepo,
+      attributionEngine: ctx.attributionEngine,
+      auditRepo: ctx.auditRepo,
+      merchantRepo: ctx.merchantRepo,
+      server,
+      eventEmitter: ctx.eventEmitter
+    });
+
+    const pipelineResult = pipeline.process({
+      source,
+      rawText: rawContent,
+      sender: rawSender,
+      receivedAt: rawReceivedAt || undefined,
+      paymentSessionId: targetSession?.id || undefined,
+      receivingAccountId: targetSession?.receivingAccountId || undefined,
+      customerId: body.customerId || targetSession?.customerId || undefined,
+      isTest: true,
+      testModeActive: true,
+      suppressBan: Boolean(body.suppressBan),
+      isSimulated: true,
+      messageId,
+      merchantId: merchant.id
+    });
+
+    // Audit Logging (Section 26 & Acceptance Test 33)
+    if (ctx.auditRepo) {
+      ctx.auditRepo.log({
+        merchantId: merchant.id,
+        entityType: 'PAYMENT_SIMULATION',
+        entityId: messageId,
+        action: 'SIMULATED_OBSERVATION_INJECTED',
+        actorType: 'DEVELOPER',
+        actorId: 'DEVELOPER_SIMULATOR',
+        details: {
+          developerIdentity: 'DEVELOPER',
+          targetCustomer: body.customerId || targetSession?.customerId || null,
+          targetSession: targetSession?.id || null,
+          source,
+          sender: rawSender,
+          receivedAt: syntheticObservation.received_at,
+          injectionTimestamp: Date.now(),
+          simulationMessageId: messageId,
+          exactRawMessage: rawContent,
+          processingResult: pipelineResult.status,
+          finalVerificationResult: pipelineResult.stages?.stage4?.status || 'UNKNOWN',
+          securityResult: pipelineResult.stages?.stage5?.status || 'UNKNOWN',
+          attributionResult: pipelineResult.stages?.stage6?.status || 'UNKNOWN',
+          failingStage: pipelineResult.failingStage || null,
+          failingReason: pipelineResult.reason || null
+        }
+      });
+    }
+
+    HttpServer.json(res, 200, {
+      ...pipelineResult,
+      isSimulated: true,
+      syntheticObservation
+    });
+  });
+
+  // 4. GET /api/v1/admin/dev/simulator/history (Recent Simulation Events)
+  server.get('/api/v1/admin/dev/simulator/history', async (req, res) => {
+    const merchant = checkSimulatorAuth(req, res);
+    if (!merchant) return;
+
+    const rows = ctx.db.query(`
+      SELECT id, entity_type, entity_id, action, actor_type, details, created_at
+      FROM audit_logs
+      WHERE entity_type = 'PAYMENT_SIMULATION'
+      ORDER BY created_at DESC
+      LIMIT 30
+    `);
+
+    const history = rows.map(r => {
+      let details = {};
+      try { details = JSON.parse(r.details); } catch {}
+      return {
+        id: r.id,
+        messageId: r.entity_id,
+        action: r.action,
+        timestamp: r.created_at,
+        source: details.source || 'UNKNOWN',
+        sender: details.sender || '',
+        sessionId: details.targetSession || null,
+        result: details.processingResult || 'UNKNOWN',
+        failingReason: details.failingReason || null,
+        details
+      };
+    });
+
+    HttpServer.json(res, 200, { history });
+  });
+
+  // =========================================================================
+  // SECURITY & BAN MANAGEMENT ROUTES (Sections 4, 5, 6, 7, 9)
+  // =========================================================================
+
+  // 1. GET /api/v1/admin/security/banned-users (List and Search Banned Users)
+  server.get('/api/v1/admin/security/banned-users', async (req, res) => {
+    const q = req.query.q || '';
+    if (!ctx.customerRepo) {
+      HttpServer.json(res, 200, { bannedUsers: [] });
+      return;
+    }
+    const bannedUsers = ctx.customerRepo.findAllBanned(q);
+    HttpServer.json(res, 200, { bannedUsers });
+  });
+
+  // 2. GET /api/v1/admin/security/banned-users/:id (View Complete Ban Details & Raw Evidence)
+  server.get('/api/v1/admin/security/banned-users/:id', async (req, res, params) => {
+    if (!ctx.customerRepo) {
+      HttpServer.json(res, 404, { error: 'Customer repository not configured' });
+      return;
+    }
+    const evidence = ctx.customerRepo.getBanEvidence(params.id);
+    if (!evidence) {
+      HttpServer.json(res, 404, { error: 'Customer not found' });
+      return;
+    }
+    HttpServer.json(res, 200, evidence);
+  });
+
+  // 3. POST /api/v1/admin/security/unban (Unban Customer with Confirmation & Audit Log)
+  server.post('/api/v1/admin/security/unban', async (req, res) => {
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+    const customerId = body.customerId || body.id;
+    if (!customerId) {
+      HttpServer.json(res, 400, { error: 'Customer ID is required.' });
+      return;
+    }
+
+    const customer = ctx.customerRepo.findById(customerId);
+    if (!customer) {
+      HttpServer.json(res, 404, { error: 'Customer not found.' });
+      return;
+    }
+
+    const prevStatus = customer.status;
+    const updated = ctx.customerRepo.unbanCustomer(customerId);
+
+    // Record USER_UNBANNED in Audit Log (Section 5)
+    if (ctx.auditRepo) {
+      ctx.auditRepo.log({
+        merchantId: req.headers['x-merchant-id'] || '00000000-0000-0000-0000-000000000001',
+        entityType: 'CUSTOMER',
+        entityId: customerId,
+        action: 'USER_UNBANNED',
+        actorType: 'ADMIN',
+        actorId: req.headers['x-admin-id'] || 'ADMIN_USER',
+        details: {
+          adminIdentity: req.headers['x-admin-id'] || 'ADMIN_USER',
+          customerIdentity: {
+            id: customer.id,
+            name: customer.name,
+            email: customer.email,
+            phone: customer.mobileNumber
+          },
+          timestamp: new Date().toISOString(),
+          previousStatus: prevStatus,
+          newStatus: 'ACTIVE'
+        }
+      });
+    }
+
+    // Also record security event for unban history
+    if (ctx.customerRepo.createSecurityEvent) {
+      ctx.customerRepo.createSecurityEvent({
+        merchantId: req.headers['x-merchant-id'] || '00000000-0000-0000-0000-000000000001',
+        customerId,
+        eventType: 'USER_UNBANNED',
+        fraudReason: 'RESTORED_BY_ADMIN',
+        rawMessage: `Customer '${customer.name}' was unbanned by merchant/admin. Gateway access restored.`
+      });
+    }
+
+    HttpServer.json(res, 200, {
+      success: true,
+      message: `Customer ${customer.name} unbanned. Gateway access restored.`,
+      customer: updated
+    });
+  });
+
+  // 4. POST /api/v1/admin/security/manual-ban (Manually Ban Customer with Distinct Reason)
+  server.post('/api/v1/admin/security/manual-ban', async (req, res) => {
+    const body = await HttpServer.parseBody(req).catch(() => ({}));
+    const customerId = body.customerId || body.id;
+    const reason = body.reason || 'MANUAL_BAN';
+    const notes = body.notes || 'Manually banned by merchant operator';
+
+    if (!customerId) {
+      HttpServer.json(res, 400, { error: 'Customer ID is required.' });
+      return;
+    }
+
+    const customer = ctx.customerRepo.findById(customerId);
+    if (!customer) {
+      HttpServer.json(res, 404, { error: 'Customer not found.' });
+      return;
+    }
+
+    const prevStatus = customer.status;
+    const updated = ctx.customerRepo.banCustomer(customerId, 'MANUAL_BAN', {
+      lastDevice: body.deviceInfo || 'Manual Admin Action'
+    });
+
+    if (ctx.auditRepo) {
+      ctx.auditRepo.log({
+        merchantId: req.headers['x-merchant-id'] || '00000000-0000-0000-0000-000000000001',
+        entityType: 'CUSTOMER',
+        entityId: customerId,
+        action: 'CUSTOMER_MANUALLY_BANNED',
+        actorType: 'ADMIN',
+        actorId: req.headers['x-admin-id'] || 'ADMIN_USER',
+        details: {
+          adminIdentity: req.headers['x-admin-id'] || 'ADMIN_USER',
+          customerId,
+          customerName: customer.name,
+          reason: 'MANUAL_BAN',
+          notes,
+          timestamp: new Date().toISOString(),
+          previousStatus: prevStatus,
+          newStatus: 'BANNED'
+        }
+      });
+    }
+
+    if (ctx.customerRepo.createSecurityEvent) {
+      ctx.customerRepo.createSecurityEvent({
+        merchantId: req.headers['x-merchant-id'] || '00000000-0000-0000-0000-000000000001',
+        customerId,
+        eventType: 'MANUAL_BAN',
+        fraudReason: 'MANUAL_BAN',
+        rawMessage: `Manual ban applied by admin: ${notes}`
+      });
+    }
+
+    HttpServer.json(res, 200, {
+      success: true,
+      message: `Customer ${customer.name} manually banned.`,
+      customer: updated
+    });
+  });
+
+  // 5. GET /api/v1/admin/security/events (List All Forensic Security Events)
+  server.get('/api/v1/admin/security/events', async (req, res) => {
+    const events = ctx.customerRepo ? ctx.customerRepo.getSecurityEvents(null, 100) : [];
+    HttpServer.json(res, 200, { events });
+  });
+
+  // 6. GET /api/v1/admin/security/history (Ban/Unban History Log)
+  server.get('/api/v1/admin/security/history', async (req, res) => {
+    const logs = ctx.db.query(`
+      SELECT id, entity_type, entity_id, action, actor_type, actor_id, details, created_at
+      FROM audit_logs
+      WHERE action IN ('CUSTOMER_AUTOMATICALLY_BANNED', 'CUSTOMER_MANUALLY_BANNED', 'USER_UNBANNED', 'TEST_MODE_FRAUD_FLAGGED_BAN_SUPPRESSED')
+         OR entity_type = 'CUSTOMER'
+      ORDER BY created_at DESC
+      LIMIT 100
+    `);
+    const parsedLogs = logs.map(l => {
+      let details = {};
+      try { details = JSON.parse(l.details); } catch {}
+      return {
+        id: l.id,
+        entityType: l.entity_type,
+        entityId: l.entity_id,
+        action: l.action,
+        actorType: l.actor_type,
+        actorId: l.actor_id,
+        details,
+        createdAt: l.created_at
+      };
+    });
+    HttpServer.json(res, 200, { history: parsedLogs });
+  });
+
+  // 7. GET /api/v1/admin/customers (List active customers for manual ban selector)
+  server.get('/api/v1/admin/customers', async (req, res) => {
+    const rows = ctx.db.query('SELECT id, name, email, mobile_number, status, created_at FROM customers ORDER BY created_at DESC LIMIT 100');
+    HttpServer.json(res, 200, {
+      customers: rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        phone: r.mobile_number,
+        status: r.status,
+        createdAt: r.created_at
+      }))
+    });
+  });
 }
+

@@ -1,937 +1,514 @@
-# YOUPI PG
+<div align="center">
 
-### Self-Hosted • White-Label • Deterministic UPI Payment Gateway
-
-[![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js\&logoColor=white)](#)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Supported-4169E1?logo=postgresql\&logoColor=white)](#)
-[![SQLite](https://img.shields.io/badge/SQLite-Supported-003B57?logo=sqlite\&logoColor=white)](#)
-[![Android](https://img.shields.io/badge/Android-Kotlin-3DDC84?logo=android\&logoColor=white)](#)
-[![Docker](https://img.shields.io/badge/Docker-Not_Required-2496ED?logo=docker\&logoColor=white)](#)
-[![Self Hosted](https://img.shields.io/badge/Deployment-Self--Hosted-black)](#)
-
-> **YOUPI PG** is a self-hosted, white-label UPI payment gateway built around deterministic payment attribution, sequential payment processing, multi-channel payment observation, and merchant-controlled operations.
-
-YOUPI PG is designed so every deployment can operate as an **independent payment instance** with its own database, merchant configuration, receiving accounts, observers, customers, branding, and support environment.
-
----
-
-## ✨ What Is YOUPI PG?
-
-YOUPI PG provides a complete payment-processing stack for merchants that want to operate their own UPI gateway infrastructure.
-
-Instead of relying on a shared hosted gateway, every YOUPI PG installation can maintain its own:
-
-* Payment API
-* Checkout experience
-* Merchant administration panel
-* Payment observation services
-* Receiving UPI accounts
-* Database
-* White-label configuration
-* Customer support portal
-* Android observer device
-* Operational control center
-
-The entire stack is distributed as **self-hostable source code** and runs using native host processes.
-
----
-
-# 🧠 Core Design Philosophy
-
-YOUPI PG is built around a few strict system invariants.
-
-### 01 — Self-Hosted Independence
-
-Every installation is an isolated gateway instance.
-
-```text
-                 YOUPI PG INSTANCE
-                        │
-        ┌───────────────┼────────────────┐
-        │               │                │
-     Database        Merchant          Observers
-        │             Config              │
-        │               │          ┌──────┼──────┐
-        │               │          │      │      │
-      Orders         Branding     Gmail   SMS  Android
-        │
-     Customers
+```
+██╗   ██╗ ██████╗ ██╗   ██╗██████╗ ██╗    ██████╗  ██████╗ 
+╚██╗ ██╔╝██╔═══██╗██║   ██║██╔══██╗██║    ██╔══██╗██╔════╝ 
+ ╚████╔╝ ██║   ██║██║   ██║██████╔╝██║    ██████╔╝██║  ███╗
+  ╚██╔╝  ██║   ██║██║   ██║██╔═══╝ ██║    ██╔═══╝ ██║   ██║
+   ██║   ╚██████╔╝╚██████╔╝██║     ██║    ██║     ╚██████╔╝
+   ╚═╝    ╚═════╝  ╚═════╝ ╚═╝     ╚═╝    ╚═╝      ╚═════╝ 
 ```
 
-One installation does not depend on another installation's database, merchant accounts, or operational state.
+# ⚡ YOUPI PG V2
+
+### The Sovereign, Self-Hosted UPI Payment Gateway for Independent Merchants
+**0% Gateway Fees • Direct-to-Bank Settlement • WhatsApp Pre-Checkout OTP • Bank SMS & Gmail Observers**
+
+<br/>
+
+[![Node.js](https://img.shields.io/badge/Node.js-v20%2B%20LTS-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
+[![Zero Aggregator Fees](https://img.shields.io/badge/Fees-0%25%20Forever-10b981?style=for-the-badge&logo=cashapp&logoColor=white)](#)
+[![Direct Settlement](https://img.shields.io/badge/Settlement-Instant%20P2P%20Bank-3b82f6?style=for-the-badge&logo=buffer&logoColor=white)](#)
+[![WhatsApp Berry Auth](https://img.shields.io/badge/Auth-WhatsApp%20OTP-25d366?style=for-the-badge&logo=whatsapp&logoColor=white)](#)
+[![SQLite WAL](https://img.shields.io/badge/Database-SQLite%20Native%20WAL-003b57?style=for-the-badge&logo=sqlite&logoColor=white)](#)
+[![Native Android Observer](https://img.shields.io/badge/Android-Kotlin%20Observer%20APK-3ddc84?style=for-the-badge&logo=android&logoColor=white)](#)
+[![Regression Tests](https://img.shields.io/badge/Tests-31%2F31%20Passing%20(100%25)-success?style=for-the-badge&logo=vitest&logoColor=white)](#)
+[![White Label Ready](https://img.shields.io/badge/Branding-100%25%20White--Label-f59e0b?style=for-the-badge&logo=target&logoColor=white)](#)
+
+<br/>
+
+<p align="center">
+  <a href="#-the-problem-vs-the-youpi-solution">Why YOUPI?</a> •
+  <a href="#-architecture-at-a-glance">Architecture</a> •
+  <a href="#-key-features--superpowers">Superpowers</a> •
+  <a href="#-quickstart-in-60-seconds">Quickstart</a> •
+  <a href="#-universal-merchant-integration">Merchant Integration</a> •
+  <a href="#-tri-channel-observation-mesh">Banking Observers</a> •
+  <a href="#-port-topology">Port Topology</a> •
+  <a href="#-documentation-hub">Docs</a>
+</p>
 
 ---
 
-### 02 — Deterministic Payment Attribution
+</div>
 
-Payment attribution follows one primary rule:
+<br/>
 
-```text
-expected_amount == observed_amount
-```
+## 💡 Stop Paying 2–3% + 18% GST to Payment Aggregators
 
-The system does not rely on vague similarity, fuzzy matching, or heuristic payment assignment.
+Traditional payment gateways (Razorpay, Cashfree, PayU, Stripe) lock your revenue into high fees, multi-day settlement delays, and sudden compliance freezes:
 
-A payment is attributed only when the observed payment amount exactly matches the expected amount for the active payment session.
+| Comparison Metric | Traditional Aggregators (Razorpay / Cashfree) | ⚡ YOUPI PG (Self-Hosted Sovereign) |
+| :--- | :--- | :--- |
+| **Transaction Fee** | **2.0% – 3.0% + 18% GST** per transaction | **0.0% (Zero Fees Forever)** |
+| **Settlement Speed** | **T+2 to T+3 Business Days** (Holdbacks) | **Instant (Direct into your Bank Account)** |
+| **Account Freeze Risk** | **High** (Unilateral freezes at aggregator discretion) | **ZERO** (You control your own VPA & infrastructure) |
+| **Customer Authentication** | SMS OTP (Costly SMS gateway bills, phone spoofing) | **WhatsApp OTP** (Zero spoofing, verified mobile) |
+| **Payment Verification** | Aggregator proprietary webhooks | **Bank SMS & Gmail Alerts** parsed in real time |
+| **Queue & Mismatch Prevention** | Aggregator pooled virtual accounts | **Invariant Single-Slot FIFO UPI Queue** |
+| **Branding Control** | "Secured by Razorpay" badges mandatory | **100% White-Label** (Your brand, your domain, zero mentions) |
+| **Offline Retail Till Desk** | Expensive add-ons / dedicated POS hardware | **Built-in POS Cash & Card at Till Billing Mode** |
+| **Deployment Simplicity** | Proprietary SaaS lock-in | **Native Node.js host process** (Zero Docker mandatory) |
 
----
-
-### 03 — Single Active Payment Slot
-
-Each receiving account maintains exactly **one active payment session** at a time.
-
-```text
-              RECEIVING ACCOUNT
-                     │
-             ┌───────┴────────┐
-             │                │
-           ACTIVE          QUEUED
-          Payment #1      Payment #2
-             │                │
-        5:00 window         waiting
-             │
-        PROCESSING
-          Payment #1
-             │
-           0:30
-      verification
-             │
-          RESULT
-             │
-        ┌────┴────┐
-        ↓         ↓
-      Next      Failed/
-      Queue     Expired
-```
-
-This sequential model prevents simultaneous amount-matching conflicts on the same receiving account.
+<br/>
 
 ---
 
-# 🔭 Tri-Channel Payment Observation
+## 🏗️ Architecture at a Glance
 
-YOUPI PG can observe payment notifications through three independent channels.
-
-| Channel           | Technology                    | Purpose                                |
-| ----------------- | ----------------------------- | -------------------------------------- |
-| 📧 Gmail          | Google OAuth2                 | Parse bank credit notifications        |
-| 📱 Android        | `NotificationListenerService` | Observe banking notifications directly |
-| 💬 SMS / Messages | Google Messages automation    | Observe SMS-based bank alerts          |
-
-All observation sources feed into the same verification pipeline.
+YOUPI PG converts your standard Indian personal or business UPI receiving accounts into an automated, zero-fee payment gateway by coupling **pure vector SVG QR codes** with an **automated multi-channel banking observation mesh**.
 
 ```mermaid
 flowchart LR
-    A[Customer Payment] --> B[Receiving Bank]
+    subgraph Storefront["Merchant Storefront"]
+        Buyer[Buyer Browser]
+        Cart[Checkout Button]
+    end
 
-    B --> C[Gmail Observer]
-    B --> D[Android Observer]
-    B --> E[SMS Observer]
+    subgraph Gateway["YOUPI Gateway Instance"]
+        AuthGate[WhatsApp Berry Auth<br/>6-Digit OTP]
+        Queue[Single-Slot FIFO Queue<br/>Deterministic Arbiter]
+        VectorQR[ISO Vector QR Engine<br/>UPI URI]
+        DualTimer[Dual Timers<br/>5:00 Pay • 0:30 Verify]
+    end
 
-    C --> F[Observation Engine]
-    D --> F
-    E --> F
+    subgraph BankingMesh["Sovereign Banking Observers"]
+        AndroidNode[Native Android APK<br/>SMS & Push Notifications]
+        GmailNode[Gmail Ingestion<br/>OAuth2 & CDP Web]
+        SMSNode[Google Messages<br/>Headless CDP]
+    end
 
-    F --> G[Payment Core]
-    G --> H[State Machine]
-    H --> I[Merchant Webhook]
+    subgraph Settlement["Direct Bank Settlement"]
+        MerchantBank[(Merchant Bank Account<br/>Direct P2P UPI Transfer)]
+    end
+
+    Buyer -->|Clicks Checkout| Cart
+    Cart -->|youpi.js Embed| AuthGate
+    AuthGate -->|Verified| Queue
+    Queue -->|Active Slot| VectorQR
+    VectorQR -->|Displays Dynamic QR| Buyer
+
+    Buyer -->|Scans & Pays with any UPI App<br/>GPay / PhonePe / Paytm / CRED| MerchantBank
+    MerchantBank -->|Pushes Cellular SMS & Alerts| AndroidNode
+    MerchantBank -->|Pushes Credit Alert Email| GmailNode
+
+    AndroidNode -->|HMAC-SHA256 Signed Alert| DualTimer
+    GmailNode -->|Normalized Amount & UTR| DualTimer
+
+    DualTimer -->|Confirmed SUCCESS| Buyer
+    DualTimer -->|Authoritative Server Webhook| Cart
 ```
+
+<br/>
 
 ---
 
-# ⏱️ Immutable Payment Timers
+## 🚀 Key Features & Superpowers
 
-YOUPI PG uses two server-authoritative timers.
+### 1. ⚡ 0% Transaction Fees Forever
+Every rupee paid goes straight from your customer's bank account to your bank account via standard NPCI UPI rails. No intermediaries hold your money.
 
-### Timer 1 — Payment Window
+### 2. 💬 WhatsApp Pre-Checkout Authentication (Berry Protocol)
+No more fake orders, bot spam, or fraudulent phone numbers. Before a customer can enter the checkout queue, the gateway delivers a cryptographically random 6-digit OTP directly to their WhatsApp app using the embedded Baileys/Berry Protocol socket. Verified customer profiles are remembered in browser `localStorage`.
 
-**5:00**
+### 3. 🔒 Deterministic Single-Slot FIFO Queue Engine
+Because standard UPI alerts do not carry arbitrary merchant metadata, multiple concurrent transactions with identical amounts could create attribution confusion. YOUPI PG solves this with a mathematical invariant:
+- **Only ONE customer can pay on a VPA at a time.**
+- Other buyers wait in a database-backed FIFO queue with live position streaming.
+- Guarantees **100% exact payment matching** with zero payment mismatch errors!
 
-Begins when the customer's payment session becomes active.
+### 4. 📱 Native Android Observer APK (`com.youpi.observer`)
+A lightweight, battery-optimized Android foreground service that captures:
+- Cellular banking SMS (`android.provider.Telephony.SMS_RECEIVED`).
+- Real-time bank push notifications via `NotificationListenerService`.
+- Enrolls securely via ephemeral QR code and signs all observation payloads with **HMAC-SHA256**.
 
-The timer:
+### 5. 📧 Automated Gmail & Google Messages Ingestion
+Dual backup observation channels:
+- **Gmail Observer (Port 6003):** Polls Google Cloud OAuth2 API or automated headless Chrome CDP inbox monitoring.
+- **SMS Observer (Port 6002):** Connects to Google Messages for Web via Chrome DevTools Protocol (CDP).
 
-* Is controlled by the server
-* Survives browser refreshes
-* Is not dependent on client-side JavaScript time
-* Remains authoritative across server restarts
+### 6. 🏪 Dual Operational Modalities
+- **Online Selling Mode:** UPI Vector QR + Cash on Delivery (COD) with customer pre-purchase verification and decoupled address lifecycle.
+- **Offline Store Counter Mode:** Designed for physical retail stores. Supports UPI QR, Cash at Till (`CASH_COUNTER`), and Card at POS Terminal (`CARD_COUNTER`) with an interactive real-time cashier till dock and instant SSE customer approval.
 
-### Timer 2 — Verification Window
+### 7. 🎨 100% White-Label Customizer
+Rebrand the checkout portal completely through the Merchant Admin Panel:
+- Custom app name, logo URL, and browser favicon.
+- Tailored color palettes, custom gradients, and trust badges.
+- Custom domain binding via Cloudflare Tunnels (`pay.yourbrand.com`).
+- Complete removal of any "Powered by YouPI PG" attribution.
 
-**0:30**
+### 8. 🚦 5 Standardized Merchant Outcome Pages
+Never leave customers hanging with blank screens or 404 errors:
+- `/order-success` — Payment verified by observers, order marked paid and provisioned.
+- `/order-failed` — Verification timed out, reassuring customer no money was lost.
+- `/order-suspicious` — Flagged by fraud heuristics, held for manual compliance review.
+- `/order-expired` — 5-minute session elapsed, slot released for queued customers.
+- `/order-cancelled` — Customer cancelled checkout session.
 
-Begins only after the customer explicitly selects:
-
-```text
-PAYMENT DONE — CHECK MY PAYMENT
-```
-
-During this period the observation engine continues polling all configured channels.
-
-```text
-PAYMENT CREATED
-      │
-      ▼
-  ┌─────────┐
-  │  5:00   │
-  │ PAYMENT │
-  └────┬────┘
-       │
-       │ Customer confirms payment
-       ▼
-  ┌─────────┐
-  │  0:30   │
-  │ VERIFY  │
-  └────┬────┘
-       │
-       ▼
-    RESULT
-```
+<br/>
 
 ---
 
-# 🔐 Multi-Level Verification
+## ⚡ Quickstart in 60 Seconds
 
-YOUPI PG supports progressive verification across observation channels.
+### Prerequisites
+- **Node.js `>= 20.0.0` LTS** (`node -v`)
+- Standard Linux or Windows host
+- *No Docker or external database services required!*
 
-### L1 — Single Verification
-
-At least **one configured observation channel** confirms the payment.
-
-The transaction can immediately enter:
-
-```text
-SUCCESS
-```
-
-without requiring the customer to wait for additional sources.
-
-### L2 — Dual Verification
-
-Two independent channels confirm the same payment.
-
-Example:
-
-```text
-Gmail + SMS
-```
-
-### L3 — Triple Verification
-
-All three configured observation channels confirm the payment.
-
-```text
-Gmail + SMS + Android
-```
-
-During the 30-second verification period, YOUPI PG continues observing available sources so the verification level can progress from L1 → L2 → L3.
-
-```mermaid
-flowchart LR
-    A[Payment Observed] --> B{Sources Confirmed}
-
-    B -->|1 source| C[L1]
-    B -->|2 sources| D[L2]
-    B -->|3 sources| E[L3]
-
-    C --> F[SUCCESS]
-    D --> F
-    E --> F
-```
-
----
-
-# 🎯 Clean Merchant Contract
-
-External merchants do not need to understand internal observation states.
-
-The gateway exposes four terminal payment outcomes:
-
-```text
-SUCCESS
-FAILED
-EXPIRED
-CANCELLED
-```
-
-This keeps merchant integrations simple while allowing the internal payment engine to remain significantly more sophisticated.
-
----
-
-# 🏗️ System Architecture
-
-```mermaid
-flowchart TB
-
-    Customer[Customer Browser]
-    Merchant[Merchant Application]
-
-    Checkout[Checkout Portal]
-    API[Payment Core API]
-    Admin[Merchant Admin]
-    Help[Payment Help Portal]
-    Control[Control Center]
-
-    Core[Core Engine]
-    DB[(PostgreSQL / SQLite)]
-
-    Gmail[Gmail Observer]
-    SMS[SMS Observer]
-    Android[Android Observer]
-
-    Merchant --> API
-    Customer --> Checkout
-
-    Checkout --> API
-    Help --> API
-    Admin --> API
-    Control --> API
-
-    API --> Core
-    Core --> DB
-
-    Gmail --> API
-    SMS --> API
-    Android --> API
-
-    Core --> Webhook[Signed Merchant Webhooks]
-    Webhook --> Merchant
-```
-
----
-
-# 📦 Workspace Structure
-
-```text
-youpi-pg/
-│
-├── package.json
-├── ARCHITECTURE.md
-├── .env.example
-│
-├── apps/
-│   │
-│   ├── control-center/
-│   │   └── Local process supervisor
-│   │
-│   ├── payment-api/
-│   │   └── Backend payment core & REST API
-│   │
-│   ├── checkout-portal/
-│   │   └── Customer checkout interface
-│   │
-│   ├── merchant-admin/
-│   │   └── Merchant administration dashboard
-│   │
-│   ├── payment-help/
-│   │   └── Customer payment help portal
-│   │
-│   ├── gmail-observer/
-│   │   └── Gmail OAuth2 observation service
-│   │
-│   ├── sms-observer/
-│   │   └── SMS / Google Messages observation service
-│   │
-│   └── android-observer-app/
-│       └── Native Android Kotlin observer
-│
-├── packages/
-│   │
-│   ├── common/
-│   │   └── Shared types, enums, crypto & paise utilities
-│   │
-│   ├── db/
-│   │   └── Database client, migrations & repositories
-│   │
-│   ├── core/
-│   │   └── State machine, queue, timers & webhooks
-│   │
-│   ├── observer-sdk/
-│   │   └── Observer ingestion SDK
-│   │
-│   └── merchant-sdk/
-│       └── Node.js merchant integration SDK
-│
-├── docs/
-│   └── Operational & integration documentation
-│
-└── scripts/
-    ├── dev.js
-    ├── clean.js
-    └── chaos-concurrency.test.js
-```
-
----
-
-# 🌐 Port Topology
-
-| Service              |   Port | Environment Variable   | Responsibility                     |
-| -------------------- | -----: | ---------------------- | ---------------------------------- |
-| **Control Center**   | `8090` | `CONTROL_CENTER_PORT`  | Process supervision, logs & health |
-| **Payment Core API** | `6100` | `PAYMENT_API_PORT`     | REST API, SSE & observation intake |
-| **Checkout Portal**  | `7000` | `CHECKOUT_PORTAL_PORT` | Customer checkout & dynamic UPI QR |
-| **Merchant Admin**   | `6001` | `MERCHANT_ADMIN_PORT`  | Merchant dashboard & operations    |
-| **Payment Help**     | `3000` | `HELP_PORTAL_PORT`     | Customer history & support         |
-| **SMS Observer**     | `6002` | `SMS_OBSERVER_PORT`    | SMS / Messages observation         |
-| **Gmail Observer**   | `6003` | `GMAIL_OBSERVER_PORT`  | Gmail polling & OAuth callback     |
-
----
-
-# 🚀 Quick Start
-
-## Requirements
-
-YOUPI PG runs as native host processes.
-
-### Supported
-
-* Linux
-* Windows
-* Node.js `20+`
-* Node.js `24 LTS` recommended
-* PostgreSQL
-* SQLite
-* Android device for Android observation
-
-### No Docker Required
-
-The system is designed around direct host execution.
-
----
-
-## 1. Clone the Repository
-
+### 1. Clone & Install Dependencies
+Standard `npm install` works out-of-the-box across all packages and apps without any protocol issues:
 ```bash
-git clone https://github.com/your-org/youpi-pg.git
+git clone https://github.com/gxurav1710/YouPI-PG---Self-hosted-UPI-payment-gateway-.git youpi-pg
 cd youpi-pg
+npm install
 ```
 
----
-
-## 2. Configure the Environment
-
+### 2. Configure Environment
 ```bash
 cp .env.example .env
 ```
+*(The default `.env` is pre-configured for localhost out of the box).*
 
-Then configure the required database, authentication, observer, merchant and deployment settings.
-
-```env
-DATABASE_URL=
-PAYMENT_API_PORT=6100
-CHECKOUT_PORTAL_PORT=7000
-MERCHANT_ADMIN_PORT=6001
-HELP_PORTAL_PORT=3000
-GMAIL_OBSERVER_PORT=6003
-SMS_OBSERVER_PORT=6002
-CONTROL_CENTER_PORT=8090
-```
-
-> Never commit production secrets or private credentials to Git.
-
----
-
-## 3. Initialize the Database
-
-Run the migration system:
-
+### 3. Zero-Config Launch (Auto-Initialized SQLite)
+On first launch, YOUPI PG automatically provisions `data/youpi_pg.sqlite`, creates the directory if missing, and executes idempotent migrations and baseline seeds. No manual database setup is required:
 ```bash
-node packages/db/src/migrate.js
+npm run dev
+# or
+npm start
 ```
 
-This initializes the schema and default seed data required by the instance.
+That's it! Your entire gateway cluster will spin up:
+- 🎛️ **Control Center Supervisor:** [`http://localhost:8090`](http://localhost:8090)
+- 📊 **Merchant Admin Panel:** [`http://localhost:6001`](http://localhost:6001)
+- 🛒 **YOUPI Showcase Demo Store:** [`http://localhost:5000`](http://localhost:5000)
+- ⚡ **Payment REST API:** [`http://localhost:6100`](http://localhost:6100)
+- 💳 **Customer Checkout Portal:** [`http://localhost:7000`](http://localhost:7000)
 
----
-
-## 4. Run Tests
-
-### Common
-
+### 4. Run the Full Regression Test Suite
+Verify all **31 test suites** across packages, apps, and chaos harnesses:
 ```bash
-node --test packages/common/src/__tests__/**/*.test.js
+npm test
 ```
-
-### Database
-
-```bash
-node --test packages/db/src/__tests__/**/*.test.js
-```
-
-### Core Engine
-
-```bash
-node --test packages/core/src/__tests__/**/*.test.js
-```
-
-### Payment API
-
-```bash
-node --test apps/payment-api/src/__tests__/**/*.test.js
-```
-
-### Checkout
-
-```bash
-node --test apps/checkout-portal/src/__tests__/**/*.test.js
-```
-
-### Merchant Admin
-
-```bash
-node --test apps/merchant-admin/src/__tests__/**/*.test.js
-```
-
-### Payment Help
-
-```bash
-node --test apps/payment-help/src/__tests__/**/*.test.js
-```
-
-### Gmail Observer
-
-```bash
-node --test apps/gmail-observer/src/__tests__/**/*.test.js
-```
-
-### SMS Observer
-
-```bash
-node --test apps/sms-observer/src/__tests__/**/*.test.js
-```
-
-### Android Observer
-
-```bash
-node --test apps/android-observer-app/__tests__/**/*.test.js
-```
-
-### Merchant SDK
-
-```bash
-node --test packages/merchant-sdk/src/__tests__/**/*.test.js
-```
-
-### Concurrency / Chaos Tests
-
-```bash
-node --test scripts/chaos-concurrency.test.js
-```
-
----
-
-# 🖥️ Control Center
-
-YOUPI PG includes a local process supervisor for operating the gateway instance.
-
-Start it with:
-
-```bash
-node apps/control-center/src/index.js
-```
-
-Then open:
-
 ```text
-http://localhost:8090
-```
-
-The Control Center provides a central operational view for:
-
-```text
-┌────────────────────────────────────────────┐
-│              YOUPI PG CONTROL              │
-├────────────────────────────────────────────┤
-│ Payment API       ● RUNNING                │
-│ Checkout          ● RUNNING                │
-│ Merchant Admin    ● RUNNING                │
-│ Payment Help      ● RUNNING                │
-│ Gmail Observer   ● CONNECTED              │
-│ SMS Observer     ● CONNECTED              │
-│ Android Observer ● PAIRED                 │
-├────────────────────────────────────────────┤
-│ CPU: 12%       RAM: 1.8 GB                │
-│ Database: CONNECTED                       │
-└────────────────────────────────────────────┘
-```
-
----
-
-# 💳 Merchant Integration
-
-YOUPI PG provides a Node.js SDK:
-
-```javascript
-import { YoupiPaymentClient } from '@youpi/merchant-sdk';
-
-const client = new YoupiPaymentClient({
-  apiUrl: 'http://localhost:6100',
-  merchantId: '00000000-0000-0000-0000-000000000001',
-  webhookSecret: 'your_webhook_secret_key'
-});
-```
-
-### Create a Payment
-
-```javascript
-const payment = await client.createPayment({
-  orderId: 'ORDER-1001',
-  amount: '200.00',
-  currency: 'INR',
-  returnUrl: 'https://store.example/orders/1001/complete',
-
-  customer: {
-    phoneNumber: '9876543210',
-    fullName: 'Customer Name'
-  }
-});
-```
-
-### Redirect to Checkout
-
-```javascript
-res.redirect(payment.checkoutUrl);
-```
-
-### Receive Signed Webhooks
-
-```javascript
-app.post('/api/payment/webhook', (req, res) => {
-  const signature = req.headers['x-gateway-signature'];
-
-  const event = client.verifyWebhook(
-    req.rawBody,
-    signature
-  );
-
-  if (event.event === 'SUCCESS') {
-    console.log(
-      `Order ${event.orderId} paid successfully.`
-    );
-  }
-
-  res.json({ received: true });
-});
-```
-
----
-
-# 🔁 Payment Lifecycle
-
-```mermaid
-stateDiagram-v2
-
-    [*] --> QUEUED
-
-    QUEUED --> ACTIVE : Slot available
-
-    ACTIVE --> PROCESSING : PAYMENT DONE
-    ACTIVE --> EXPIRED : 5:00 elapsed
-    ACTIVE --> CANCELLED : Customer cancels
-
-    PROCESSING --> SUCCESS : Observation confirmed
-    PROCESSING --> FAILED : Verification unsuccessful
-    PROCESSING --> SUCCESS : Verification escalated
-
-    SUCCESS --> [*]
-    FAILED --> [*]
-    EXPIRED --> [*]
-    CANCELLED --> [*]
-```
-
-The external merchant only needs to consume:
-
-```text
-SUCCESS
-FAILED
-EXPIRED
-CANCELLED
-```
-
----
-
-# 🎨 White-Label System
-
-YOUPI PG is designed to be rebranded for individual merchant deployments.
-
-Supported configuration areas can include:
-
-```text
-Brand Name
-Logo
-Primary Branding
-Checkout Appearance
-Merchant Identity
-Payment Instructions
-Support Information
-Custom Catalogue
-Gateway Configuration
-```
-
-The underlying payment engine remains unchanged while presentation and merchant-specific configuration can be customized per deployment.
-
-See:
-
-[`docs/WHITE_LABEL.md`](docs/WHITE_LABEL.md)
-
----
-
-# 📱 Android Observer
-
-The native Android observer uses:
-
-```text
-NotificationListenerService
-        │
-        ▼
-Bank Notification
-        │
-        ▼
-Observation Parser
-        │
-        ▼
-Authenticated Gateway Ingestion
-        │
-        ▼
-Payment Core
-```
-
-Device authentication is protected using HMAC-based authentication.
-
-The Android application operates as an independent observation node connected to the gateway instance.
-
----
-
-# 🔐 Security & Reliability Model
-
-YOUPI PG is designed around several operational protections:
-
-### Deterministic Matching
-
-```text
-Expected Amount
-      ==
-Observed Amount
-```
-
-### Server-Authoritative Timing
-
-Payment timers are calculated from server state rather than relying on the browser clock.
-
-### Exclusive Payment Slot
-
-Only one payment can occupy a receiving account's active slot at a time.
-
-### Signed Merchant Webhooks
-
-Merchant webhook requests can be verified using a shared webhook secret.
-
-### HMAC Observer Authentication
-
-Observer devices authenticate against the gateway using HMAC-based credentials.
-
-### Multi-Source Observation
-
-Independent payment observation channels can be combined during the verification window.
-
----
-
-# 🧪 Concurrency & Chaos Testing
-
-The project includes dedicated concurrency verification designed to test race conditions around:
-
-* Multiple simultaneous customers
-* Queue ordering
-* Active payment slot exclusivity
-* Payment expiration
-* Verification timing
-* Observer duplication
-* Simultaneous payment observations
-* State transition races
-
-Run the primary concurrency suite with:
-
-```bash
-node --test scripts/chaos-concurrency.test.js
-```
-
----
-
-# 📚 Documentation
-
-Detailed documentation is available in the `/docs` directory.
-
-| Document                                                              | Purpose                               |
-| --------------------------------------------------------------------- | ------------------------------------- |
-| [`INSTALLATION.md`](docs/INSTALLATION.md)                             | Host installation & environment setup |
-| [`CONFIGURATION.md`](docs/CONFIGURATION.md)                           | Configuration & secret management     |
-| [`OBSERVERS_SETUP.md`](docs/OBSERVERS_SETUP.md)                       | Gmail, Android & SMS observers        |
-| [`MERCHANT_INTEGRATION.md`](docs/MERCHANT_INTEGRATION.md)             | SDK & webhook integration             |
-| [`WHITE_LABEL.md`](docs/WHITE_LABEL.md)                               | Branding & deployment customization   |
-| [`OPERATIONS_TROUBLESHOOTING.md`](docs/OPERATIONS_TROUBLESHOOTING.md) | Operations, testing & troubleshooting |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md)                                  | Canonical system architecture         |
-
----
-
-# 📁 Deployment Philosophy
-
-Each YOUPI PG installation is intended to remain self-contained.
-
-```text
-youpi-pg/
-│
-├── Application
-├── Configuration
-├── Database Migrations
-├── Branding
-├── Catalogue
-├── Observer Services
-├── Android Project
-├── Deployment Scripts
-└── Documentation
-```
-
-A deployment can therefore be moved between compatible hosts as a complete application workspace, with environment-specific secrets and runtime state supplied separately.
-
----
-
-# 🔄 Recommended Release Model
-
-For versioned deployments, use Git tags/releases:
-
-```text
-v1.0.0
-v1.1.0
-v1.2.0
-v1.3.0
+============================================================
+🧪 YOUPI PG V2 — FULL REGRESSION TEST RUNNER
+Running 31 curated test suites...
+============================================================
+[1/31] Testing packages/common/src/__tests__/common.test.js... ✅ PASS (0.22s)
 ...
+[31/31] Testing scripts/production-infrastructure.test.js... ✅ PASS (0.17s)
+============================================================
+🎉 ALL 31 TEST SUITES PASSED CLEANLY (Total: 17.68s)
+============================================================
 ```
 
-A production deployment can then be tied to a known release:
-
-```text
-Production
-   │
-   └── YOUPI PG v1.3.0
-             │
-             ├── Frontend
-             ├── Backend
-             ├── Database migrations
-             ├── Configuration
-             └── Deployment scripts
-```
-
-For disaster recovery, back up the application source/configuration separately from the live database and secret material.
+<br/>
 
 ---
 
-# 🗺️ Project at a Glance
+## 📦 Universal Merchant Integration
+
+Integrating YOUPI PG into your website, web app, or e-commerce store takes less than 5 minutes.
+
+### Step 1: Add the Universal Script to your `<head>`
+```html
+<!-- Official YOUPI PG Universal Integration Script -->
+<script src="https://pay.yourdomain.com/youpi.js" 
+        data-youpi-key="YOUR_MERCHANT_PUBLIC_KEY" 
+        data-currency="INR">
+</script>
+```
+
+### Step 2: Declarative Button (Zero JavaScript Required!)
+Add `data-youpi-pay` attributes to any existing HTML button:
+```html
+<button data-youpi-pay
+        data-order-id="ORDER-1001"
+        data-amount="499.00"
+        data-currency="INR">
+  ⚡ Buy Now with YOUPI PG
+</button>
+```
+*The script automatically intercepts the click, opens a centered desktop modal (or mobile slide-up bottom sheet), and launches the checkout session!*
+
+### Step 3: Programmatic API (For React, Vue, Next.js, Nuxt)
+```javascript
+window.Youpi.pay({
+  order_id: 'ORDER-1001',
+  amount: 499.00,
+  currency: 'INR',
+  name: 'Acme Digital Store',
+  description: 'Pro Subscription Top-Up',
+  handler: function(response) {
+    // response: { status: 'SUCCESS', order_id, amount_received, utr }
+    console.log(`Payment confirmed! UTR: ${response.utr}`);
+    window.location.href = `/order-success?order_id=${response.order_id}&utr=${response.utr}`;
+  },
+  onClose: function() {
+    console.log('Customer closed payment modal');
+  }
+});
+```
+
+### Step 4: Authoritative Server-to-Server Webhook Verification
+> ⚠️ **CRITICAL SECURITY RULE:** Never fulfill orders based solely on frontend browser events. Always verify the backend HMAC-SHA256 signature! Consumers **MUST** compute the HMAC over the raw, unparsed request bytes before any JSON parsing.
+
+#### Webhook Contract:
+- **Header**: `X-Gateway-Signature: sha256=<64_char_hex_hash>`
+- **Additional Headers**: `X-Gateway-Event: SUCCESS`, `X-Gateway-Delivery-Id: <uuid>`, `X-Gateway-Timestamp: <timestamp_ms>`
+- **Payload Fields**:
+  - `event`: `'SUCCESS'`
+  - `orderId`: Merchant order ID (string)
+  - `amount`: Formatted amount in Rupees, e.g. `'499.00'`
+  - `amountPaise`: Integer amount in Paise, e.g. `49900`
+  - `utr`: 12-digit bank reference number
+  - `paymentId`: Unique gateway payment session UUID
+
+#### Polyglot Webhook Verification Snippets:
+
+##### 1. Node.js (Express)
+```javascript
+import crypto from 'node:crypto';
+
+app.post('/api/youpi-webhook', express.raw({ type: 'application/json' }), (req, res) => {
+  const signature = req.headers['x-gateway-signature'] || '';
+  const secret = process.env.YOUPI_WEBHOOK_SECRET;
+  const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(req.body).digest('hex');
+
+  if (signature.length !== expected.length ||
+      !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    return res.status(401).json({ error: 'Invalid webhook signature' });
+  }
+
+  const payload = JSON.parse(req.body.toString('utf8'));
+  if (payload.event === 'SUCCESS') {
+    // Fulfill order: payload.orderId, payload.utr, payload.amount, payload.amountPaise
+  }
+  res.status(200).json({ received: true });
+});
+```
+
+##### 2. Python (FastAPI)
+```python
+import hmac, hashlib, json
+from fastapi import FastAPI, Request, HTTPException
+
+app = FastAPI()
+
+@app.post("/api/youpi-webhook")
+async def youpi_webhook(request: Request):
+    raw_body = await request.body()
+    signature = request.headers.get("X-Gateway-Signature", "")
+    secret = request.app.state.webhook_secret.encode("utf-8")
+
+    expected = "sha256=" + hmac.new(secret, raw_body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    payload = json.loads(raw_body.decode("utf-8"))
+    if payload.get("event") == "SUCCESS":
+        # Fulfill order: payload["orderId"], payload["utr"], payload["amount"]
+        pass
+    return {"received": True}
+```
+
+##### 3. PHP
+```php
+<?php
+$rawPayload = file_get_contents('php://input');
+$signature = $_SERVER['HTTP_X_GATEWAY_SIGNATURE'] ?? '';
+$secret = getenv('YOUPI_WEBHOOK_SECRET');
+
+$expected = 'sha256=' . hash_hmac('sha256', $rawPayload, $secret);
+
+if (!hash_equals($expected, $signature)) {
+    http_response_code(401);
+    exit(json_encode(['error' => 'Invalid webhook signature']));
+}
+
+$payload = json_decode($rawPayload, true);
+if (($payload['event'] ?? '') === 'SUCCESS') {
+    // Fulfill order: $payload['orderId'], $payload['utr'], $payload['amount']
+}
+
+http_response_code(200);
+echo json_encode(['received' => true]);
+?>
+```
+
+##### 4. Go (`net/http`)
+```go
+package main
+
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"io"
+	"net/http"
+	"os"
+)
+
+func youpiWebhookHandler(w http.ResponseWriter, r *http.Request) {
+	rawBody, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Cannot read body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	signature := r.Header.Get("X-Gateway-Signature")
+	secret := []byte(os.Getenv("YOUPI_WEBHOOK_SECRET"))
+
+	mac := hmac.New(sha256.New, secret)
+	mac.Write(rawBody)
+	expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	if !hmac.Equal([]byte(signature), []byte(expected)) {
+		http.Error(w, "Invalid webhook signature", http.StatusUnauthorized)
+		return
+	}
+
+	var payload struct {
+		Event       string `json:"event"`
+		OrderId     string `json:"orderId"`
+		UTR         string `json:"utr"`
+		Amount      string `json:"amount"`
+		AmountPaise int64  `json:"amountPaise"`
+	}
+	if err := json.Unmarshal(rawBody, &payload); err == nil && payload.Event == "SUCCESS" {
+		// Fulfill order: payload.OrderId, payload.UTR, payload.Amount
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"received":true}`))
+}
+```
+
+<br/>
+
+---
+
+## 🔭 Tri-Channel Observation Mesh
+
+YOUPI PG confirms payments without expensive commercial banking APIs using a triple-layer observation pipeline:
 
 ```text
-                 ┌─────────────────────┐
-                 │      MERCHANT       │
-                 │      APPLICATION    │
-                 └──────────┬──────────┘
-                            │
-                            ▼
-                 ┌─────────────────────┐
-                 │    PAYMENT API      │
-                 │       :6100         │
-                 └──────────┬──────────┘
-                            │
-                 ┌──────────▼──────────┐
-                 │     PAYMENT CORE    │
-                 │ Queue • State •     │
-                 │ Timers • Webhooks   │
-                 └───────┬───┬───┬─────┘
-                         │   │   │
-              ┌──────────┘   │   └──────────┐
-              ▼              ▼              ▼
-        ┌──────────┐   ┌──────────┐   ┌───────────┐
-        │  Gmail   │   │   SMS    │   │  Android  │
-        │ Observer │   │ Observer │   │ Observer  │
-        └─────┬────┘   └────┬─────┘   └─────┬─────┘
-              │             │               │
-              └─────────────┼───────────────┘
-                            ▼
-                  ┌──────────────────┐
-                  │   VERIFICATION   │
-                  │      L1/L2/L3    │
-                  └────────┬─────────┘
+              CUSTOMER SCANS & PAYS VIA UPI
                            │
                            ▼
-                 ┌────────────────────┐
-                 │    MERCHANT        │
-                 │ SUCCESS / FAILED   │
-                 │ EXPIRED / CANCELLED│
-                 └────────────────────┘
+                 RECEIVING BANK ACCOUNT
+                           │
+        ┌──────────────────┼──────────────────┐
+        ▼                  ▼                  ▼
+┌───────────────┐  ┌───────────────┐  ┌───────────────┐
+│  CELLULAR SMS │  │   BANK PUSH   │  │  GMAIL CREDIT │
+│  ALERT ON SIM │  │ NOTIFICATION  │  │  ALERT EMAIL  │
+└───────┬───────┘  └───────┬───────┘  └───────┬───────┘
+        │                  │                  │
+        ▼                  ▼                  │
+┌──────────────────────────────────┐          │
+│    NATIVE ANDROID OBSERVER APK   │          │
+│  com.youpi.observer (Foreground) │          │
+│     HMAC-SHA256 Signed Payload   │          │
+└─────────────────┬────────────────┘          │
+                  │                           ▼
+                  │                 ┌───────────────────┐
+                  │                 │   GMAIL OBSERVER  │
+                  │                 │ Google Cloud API  │
+                  │                 └─────────┬─────────┘
+                  │                           │
+                  └─────────────┬─────────────┘
+                                ▼
+                   PAYMENT CORE REST ENGINE
+               Exact Amount & UTR Normalization
+                                │
+                                ▼
+                       SUCCESS CONFIRMED
 ```
 
----
+1. **Android Observer App:** Install [`apps/android-observer-app/youpi-sms-gateway.apk`](apps/android-observer-app/youpi-sms-gateway.apk) on any secondary Android smartphone with the receiving bank SIM. Scan the pairing QR code in Merchant Admin to establish an encrypted HMAC link.
+2. **Gmail Observer:** Connect your bank-registered Google account using standard OAuth2 credentials.
+3. **Google Messages Web Observer:** Pairs via headless Chrome DevTools Protocol to observe cellular SMS through Google Messages Web.
 
-# ⚡ Why YOUPI PG?
-
-| Capability                       | YOUPI PG |
-| -------------------------------- | -------- |
-| Self-hosted                      | ✅        |
-| White-label                      | ✅        |
-| Native host deployment           | ✅        |
-| Docker required                  | ❌        |
-| PostgreSQL                       | ✅        |
-| SQLite                           | ✅        |
-| Sequential payment queue         | ✅        |
-| Deterministic amount matching    | ✅        |
-| Gmail observation                | ✅        |
-| Android notification observation | ✅        |
-| SMS / Messages observation       | ✅        |
-| Multi-source verification        | ✅        |
-| Signed merchant webhooks         | ✅        |
-| Native Android observer          | ✅        |
-| Merchant administration          | ✅        |
-| Customer payment help            | ✅        |
-| Concurrency testing              | ✅        |
+<br/>
 
 ---
 
-# ⚠️ Production Notes
+## 🌐 Port Topology & Microservices Map
 
-Before deploying a YOUPI PG instance for real transactions, complete the environment, credential, database, observer, webhook, access-control, logging, backup, and operational checks documented in the `/docs` directory.
+| Service | Port | Directory | Entrypoint | Responsibility |
+| :--- | :---: | :--- | :--- | :--- |
+| **Payment API** | `6100` | [`apps/payment-api`](apps/payment-api) | `src/index.js` | Core REST API, state machine, DB transactions & SSE stream |
+| **Checkout Portal** | `7000` | [`apps/checkout-portal`](apps/checkout-portal) | `src/index.js` | Customer iframe checkout, dynamic vector QR, SDK bundle |
+| **Merchant Admin** | `6001` | [`apps/merchant-admin`](apps/merchant-admin) | `src/index.js` | Operations panel, till billing desk, branding customizer |
+| **Showcase Store** | `5000` | [`apps/coin-wallet-store`](apps/coin-wallet-store) | `src/index.js` | Reference enterprise merchant PDP, 5 outcome demonstrations |
+| **Control Center** | `8090` | [`apps/control-center`](apps/control-center) | `src/index.js` | Process supervisor for starting, stopping, and logging all services |
+| **SMS Observer** | `6002` | [`apps/sms-observer`](apps/sms-observer) | `src/index.js` | Google Messages Web automation via Chrome CDP |
+| **Gmail Observer** | `6003` | [`apps/gmail-observer`](apps/gmail-observer) | `src/index.js` | Gmail Web CDP automation & Google OAuth2 poller |
+| **Android APK** | N/A | [`apps/android-observer-app`](apps/android-observer-app) | Android OS | Intercepts cellular banking SMS and notifications |
 
-Production deployments should also maintain independent backups of:
-
-```text
-Application Source
-Configuration
-Database State
-Merchant Data
-Uploads / Assets
-Secrets
-Deployment Metadata
-```
-
----
-
-# 📖 Architecture
-
-For the canonical architecture definition, see:
-
-**[`ARCHITECTURE.md`](ARCHITECTURE.md)**
-
-The architecture document should be treated as the authoritative reference for service boundaries, data flow, state transitions, observer behavior, and deployment assumptions.
+<br/>
 
 ---
 
-## License
+## 🔒 Security & Reliability Architecture
 
-See [`LICENSE`](LICENSE) for licensing information.
+- **64-Bit Integer Minor Units (Paise):** Financial values are strictly represented as integers (`49900` paise = ₹499.00). Floating-point rounding drift is mathematically impossible.
+- **Server-Authoritative Timers:** Timers are calculated strictly from SQLite state timestamps. Client-side browser tampering cannot manipulate countdowns.
+- **Anti-Replay Observation Protection:** Android observer payloads require HMAC signatures with timestamp drift verification ($< 60$ seconds).
+- **Hardware & Browser Fingerprinting:** Buyers are fingerprinted on arrival. Fraudulent actors and abusive chargeback profiles are permanently banned instantly.
+- **Write-Ahead Logging (WAL):** SQLite operates with `PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;`, ensuring crash safety and concurrent read performance.
+
+<br/>
 
 ---
+
+## 📚 Documentation Hub
+
+Deep-dive engineering manuals and operational runbooks are available in the [`/docs`](docs) directory:
+
+| Document | Description |
+| :--- | :--- |
+| 📘 [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Canonical System Architecture & Engineering Blueprint** |
+| 🚀 [`docs/INSTALLATION.md`](docs/INSTALLATION.md) | Host installation, prerequisites & environment setup |
+| ⚙️ [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | Environment configuration variables & secret management |
+| 📱 [`docs/ANDROID_MOBILE_APP.md`](docs/ANDROID_MOBILE_APP.md) | Native Android Kotlin Observer APK guide & permissions |
+| 🔭 [`docs/OBSERVERS_SETUP.md`](docs/OBSERVERS_SETUP.md) | Complete setup for Gmail, Google Messages & Android |
+| 💳 [`docs/MERCHANT_INTEGRATION.md`](docs/MERCHANT_INTEGRATION.md) | Full developer integration guide, SDK methods & webhooks |
+| 🎨 [`docs/WHITE_LABEL.md`](docs/WHITE_LABEL.md) | White-label branding customizer, domains & Cloudflare |
+| 🛠️ [`docs/OPERATIONS_TROUBLESHOOTING.md`](docs/OPERATIONS_TROUBLESHOOTING.md) | Production operations, logs, diagnostics & troubleshooting |
+| 🌐 [`openapi.yaml`](openapi.yaml) | Official OpenAPI 3.0 REST API specification |
+
+<br/>
+
+---
+
+## ⚖️ License
+
+Distributed under commercial and sovereign licensing for independent merchant deployments. See [`LICENSE`](LICENSE) for full terms.
+
+<br/>
 
 <div align="center">
 
-### YOUPI PG
+### Built for Financial Sovereignty in India 🇮🇳
+**Take back control of your payments. Zero middleman fees. Direct settlement.**
 
-**Self-hosted UPI infrastructure for independent merchant deployments.**
-
-Built around deterministic matching, isolated queues, and observable payment state.
+⭐ **Star this repository if you believe in open, zero-fee payment infrastructure!**
 
 </div>

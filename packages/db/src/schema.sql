@@ -33,13 +33,16 @@ CREATE TABLE IF NOT EXISTS payment_receiving_accounts (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_single_active_vpa_per_merchant ON payment_receiving_accounts (merchant_id) WHERE is_active = true;
 
--- 3. Customers Table (Gateway-owned Customer Identity)
+-- 3. Customers Table (Gateway-owned Customer Identity with WhatsApp Berry OTP)
 CREATE TABLE IF NOT EXISTS customers (
     id TEXT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     mobile_number VARCHAR(20) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255),
+    otp_code VARCHAR(10),
+    otp_expires_at TIMESTAMPTZ,
+    is_phone_verified BOOLEAN DEFAULT false,
     status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
     last_login_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -85,6 +88,7 @@ CREATE TABLE IF NOT EXISTS payment_sessions (
     return_url VARCHAR(1024),
     attributed_observation_id TEXT,
     idempotency_key VARCHAR(255),
+    device_id TEXT REFERENCES devices(id),
     verification_level INT DEFAULT 0,
     verification_sources TEXT DEFAULT '[]',
     verification_tag VARCHAR(100) DEFAULT 'UNVERIFIED',
@@ -179,3 +183,48 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     ip_address VARCHAR(45),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- 10. Security Events Table
+CREATE TABLE IF NOT EXISTS security_events (
+    id TEXT PRIMARY KEY,
+    merchant_id TEXT,
+    customer_id TEXT,
+    payment_session_id TEXT,
+    event_type VARCHAR(100) NOT NULL,
+    source VARCHAR(50),
+    sender VARCHAR(255),
+    device_info TEXT,
+    raw_message TEXT NOT NULL,
+    normalized_message TEXT,
+    extracted_amount VARCHAR(50),
+    extracted_reference VARCHAR(100),
+    parser_results TEXT DEFAULT '{}',
+    verification_results TEXT DEFAULT '{}',
+    fraud_reason VARCHAR(255) NOT NULL,
+    metadata TEXT DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 11. Devices Table (Cryptographic Device Binding & Hardware Context Fingerprinting)
+CREATE TABLE IF NOT EXISTS devices (
+    id TEXT PRIMARY KEY,
+    customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
+    public_key TEXT NOT NULL,
+    fingerprint_hash VARCHAR(64) NOT NULL,
+    user_agent TEXT,
+    platform VARCHAR(100),
+    browser VARCHAR(100),
+    timezone VARCHAR(100),
+    language VARCHAR(50),
+    screen_signature VARCHAR(100),
+    device_token VARCHAR(255) UNIQUE,
+    status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_devices_customer ON devices (customer_id);
+CREATE INDEX IF NOT EXISTS idx_devices_fingerprint ON devices (fingerprint_hash);
+CREATE INDEX IF NOT EXISTS idx_devices_token ON devices (device_token);
+CREATE INDEX IF NOT EXISTS idx_payment_sessions_device ON payment_sessions (device_id);
+

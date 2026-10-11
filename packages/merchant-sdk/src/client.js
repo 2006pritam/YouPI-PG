@@ -56,6 +56,9 @@ export class YoupiPaymentClient {
       customer: params.customer,
       metadata: params.metadata
     };
+    if (params.autoActivate === true) {
+      payload.autoActivate = true;
+    }
 
     const res = await fetch(url, {
       method: 'POST',

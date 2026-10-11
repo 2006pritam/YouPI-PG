@@ -5,6 +5,6 @@
   "type": "module",
   "main": "./src/index.js",
   "dependencies": {
-    "@youpi/common": "workspace:*"
+    "@youpi/common": "*"
   }
 }

@@ -75,6 +75,7 @@ export class GmailBrowserAutomator {
    */
   async autoEnsureConnection() {
     if (this.isEnsuring) return this.getStatus();
+    if (process.env.ENABLE_LEGACY_CHROME_OBSERVERS !== 'true') return this.getStatus();
     this.isEnsuring = true;
 
     try {
@@ -126,6 +127,14 @@ export class GmailBrowserAutomator {
    * Launches the real visible Chrome window for the user to log into Gmail.
    */
   launchLoginWindow() {
+    if (process.env.ENABLE_LEGACY_CHROME_OBSERVERS !== 'true') {
+      return {
+        success: false,
+        launched: false,
+        reason: 'Legacy Chrome observer is disabled in production profile. Use Gmail API OAuth.'
+      };
+    }
+
     this.mode = 'VISIBLE';
     this.browserProcess = BrowserLauncher.launch({
       url: this.targetUrl,
@@ -343,7 +352,7 @@ export class GmailBrowserAutomator {
               subject: email.subject,
               body: email.body,
               date: new Date(),
-              from: 'gmail-browser-automator'
+              from: email.from || 'alerts@retail.bank.in'
             });
             this.emailsObserved++;
             this.lastEmailAt = new Date();

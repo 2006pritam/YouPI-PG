@@ -27,8 +27,17 @@ export const PublicPaymentOutcome = Object.freeze({
  */
 export const PaymentMethod = Object.freeze({
   UPI: 'UPI',
+  COD: 'COD',
   CASH_COUNTER: 'CASH_COUNTER',
   CARD_COUNTER: 'CARD_COUNTER'
+});
+
+/**
+ * Merchant gateway selling modes.
+ */
+export const SellingMode = Object.freeze({
+  ONLINE: 'ONLINE',
+  OFFLINE: 'OFFLINE'
 });
 
 /**
@@ -38,6 +47,8 @@ export const PaymentMethod = Object.freeze({
 export const ObserverSource = Object.freeze({
   GMAIL: 'GMAIL',
   GOOGLE_MESSAGES: 'GOOGLE_MESSAGES',
+  ANDROID_OBSERVER: 'ANDROID_OBSERVER',
+  SMS_GATEWAY: 'SMS_GATEWAY',
   MANUAL_COUNTER: 'MANUAL_COUNTER'
 });
 

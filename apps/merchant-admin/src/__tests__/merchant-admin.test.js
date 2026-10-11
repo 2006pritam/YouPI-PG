@@ -50,8 +50,8 @@ describe('Merchant Admin Integration Tests', () => {
     assert.ok(res.text.includes('Processing Slot (30s Verification Window)'));
     assert.ok(res.text.includes('Live Counter Payment Requests'));
     assert.ok(res.text.includes('Payment Observers (SMS & Gmail)'));
-    assert.ok(res.text.includes('Google Messages (SMS)'));
-    assert.ok(res.text.includes('Gmail Inbox Observer'));
+    assert.ok(res.text.includes('Android SMS Gateway'));
+    assert.ok(res.text.includes('Gmail Direct API'));
   });
 
   test('GET /api/admin/tickets returns tickets array', async () => {

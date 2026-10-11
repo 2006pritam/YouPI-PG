@@ -152,6 +152,45 @@ class ApiClient(private val context: Context) {
         return false
     }
 
+    fun sendSms(sender: String, body: String, timestamp: Long): Boolean {
+        if (!isPaired()) return false
+
+        val deviceId = prefs.getString("device_id", null) ?: return false
+        val signingKey = prefs.getString("signing_key", null) ?: return false
+        val baseUrl = getBaseUrl()
+
+        val tsStr = timestamp.toString()
+        val url = "$baseUrl/api/v1/observers/sms"
+
+        val bodyJson = JSONObject().apply {
+            put("deviceId", deviceId)
+            put("sender", sender)
+            put("body", body)
+            put("timestamp", timestamp)
+        }
+
+        val bodyString = bodyJson.toString()
+        val sigPayload = "$bodyString:$tsStr"
+        val signature = calculateHmac(sigPayload, signingKey)
+
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("X-Device-Id", deviceId)
+            .addHeader("X-Timestamp", tsStr)
+            .addHeader("X-Signature", signature)
+            .post(bodyString.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        try {
+            client.newCall(request).execute().use { res ->
+                return res.isSuccessful
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return false
+    }
+
     private fun calculateHmac(data: String, keyHex: String): String {
         val secret = SecretKeySpec(keyHex.toByteArray(Charsets.UTF_8), "HmacSHA256")
         val mac = Mac.getInstance("HmacSHA256")

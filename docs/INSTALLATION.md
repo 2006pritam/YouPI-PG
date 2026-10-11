@@ -3,61 +3,79 @@
 ## 1. Operating Environment
 YOUPI PG is distributed as source code and is engineered to run directly as native host processes on standard Linux (Ubuntu, Debian, RHEL, CentOS) and Windows 10/11 environments.
 
-**Zero Docker Requirement:** Docker, Docker Compose, and container engines are completely out of scope and not required.
+**Zero Docker Requirement:** Docker, Docker Compose, and external container engines are completely optional and not required. Standard `npm install` works out-of-the-box across all workspace packages.
 
 ### Prerequisites
 - **Node.js:** v20.0.0 or higher (v24 LTS recommended)
-- **Database:** PostgreSQL v14+ (or built-in zero-dependency SQLite for local dev/testing)
-- **Java/JDK (Optional, for Android build):** OpenJDK 17+
+- **Database:** Built-in zero-dependency SQLite WAL with automatic schema provisioning (or optional PostgreSQL v14+)
+- **Java/JDK (Optional, for Android APK build):** OpenJDK 17+
 
 ---
 
-## 2. Linux (Ubuntu / Debian) Setup
+## 2. Zero-Config Quickstart (All Platforms)
+
+Thanks to **Zero-Config Database Auto-Provisioning**, YOUPI PG automatically creates `data/youpi_pg.sqlite` and executes idempotent schema migrations and default seeds on first launch:
+
+```bash
+# 1. Clone repository
+git clone <your-repository-url> youpi-pg
+cd youpi-pg
+
+# 2. Install dependencies (Standard NPM out-of-the-box)
+npm install
+
+# 3. Configure environment
+cp .env.example .env
+
+# 4. Start all services
+npm start
+# or for live development:
+npm run dev
+```
+
+---
+
+## 3. Linux (Ubuntu / Debian) Production Setup
 
 ```bash
 # 1. Update system packages
 sudo apt update && sudo apt upgrade -y
 
-# 2. Install Node.js 24 LTS
+# 2. Install Node.js 24 LTS & Git
 curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
-sudo apt install -y nodejs git postgresql postgresql-contrib
+sudo apt install -y nodejs git
 
-# 3. Setup PostgreSQL database
-sudo -u postgres psql -c "CREATE USER youpi WITH PASSWORD 'SecurePassword123!';"
-sudo -u postgres psql -c "CREATE DATABASE youpi_pg OWNER youpi;"
-
-# 4. Clone and enter repository
+# 3. Clone and enter repository
 git clone <your-repository-url> youpi-pg
 cd youpi-pg
 
+# 4. Install dependencies
+npm install
+
 # 5. Configure environment
 cp .env.example .env
-nano .env # Set DATABASE_URL=postgresql://youpi:SecurePassword123!@localhost:5432/youpi_pg
+nano .env
 
-# 6. Run database migrations
-node packages/db/src/migrate.js
-
-# 7. Start Control Center
-node apps/control-center/src/index.js
+# 6. Start production cluster (SQLite auto-initializes on boot)
+npm start
 ```
 
 ---
 
-## 3. Windows Setup
+## 4. Windows 10 / 11 Setup
 
 ```powershell
-# 1. Verify Node.js
-node -v # Ensure >= v20.0.0
+# 1. Verify Node.js (>= v20.0.0)
+node -v
 
-# 2. Configure .env
+# 2. Install dependencies
+npm install
+
+# 3. Configure environment
 Copy-Item .env.example .env
-# Edit .env using Notepad or VS Code
 
-# 3. Run database migrations
-node packages/db/src/migrate.js
-
-# 4. Start local services via Control Center
-node apps/control-center/src/index.js
+# 4. Start services (Zero-config auto-initialization)
+npm run dev
 ```
 
-Navigate to `http://localhost:8090` to access the Control Center and verify running services.
+Navigate to `http://localhost:8090` to access the Control Center supervisor and verify all running services.

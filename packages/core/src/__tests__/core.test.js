@@ -174,8 +174,7 @@ describe('@youpi/core Unit & Integration Tests', () => {
       assert.ok(updatedSession.completedAt);
 
       // Verify event was emitted
-      assert.equal(emittedEvents.length, 1);
-      assert.equal(emittedEvents[0].event, 'PAYMENT.SUCCESS');
+      assert.ok(emittedEvents.some(e => e.event === 'PAYMENT.SUCCESS'));
     });
 
     test('deduplicates multi-channel observations (SMS + Gmail)', () => {

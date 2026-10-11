@@ -49,7 +49,7 @@ async function run53PointMatrix() {
   const auditRepo = new AuditLogRepository(testDb);
   const queueEngine = new QueueEngine({ sessionRepo, accountRepo });
   const timingEngine = new TimingEngine({ sessionRepo, accountRepo });
-  const attributionEngine = new AttributionEngine({ sessionRepo, obsRepo });
+  const attributionEngine = new AttributionEngine({ sessionRepo, obsRepo, gracePeriodMs: 0 });
   const webhookEngine = new WebhookEngine({ db: testDb, merchantRepo });
 
   const merchant = merchantRepo.create({
@@ -571,6 +571,7 @@ async function run53PointMatrix() {
     assert.equal(bindDemo.body.status, PaymentStatus.ACTIVE);
     assert.ok(bindDemo.body.expiresAt);
     console.log('  [✓] Test 40 Passed: Payment session and timer begin after customer authentication');
+    sessionRepo.transitionToTerminal(demoBuy.body.paymentId, PaymentStatus.SUCCESS);
 
     // ==========================================
     // MERCHANT INTEGRATION (Tests 41 - 43)
@@ -601,6 +602,7 @@ async function run53PointMatrix() {
     assert.equal(genericBind.body.status, 'ACTIVE');
     assert.equal(genericBind.body.customer.name, 'Gaurav Sharma');
     console.log('  [✓] Test 41, 42, 43 Passed: Generic merchant model verified. Gateway owns customer identity');
+    sessionRepo.transitionToTerminal(genericPay.paymentId, PaymentStatus.SUCCESS);
 
     // ==========================================
     // REGRESSION (Tests 44 - 53)

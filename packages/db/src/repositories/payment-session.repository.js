@@ -18,9 +18,9 @@ export class PaymentSessionRepository {
       INSERT INTO payment_sessions (
         id, merchant_id, customer_id, receiving_account_id, order_id,
         amount_paise, currency, method, status, queue_position,
-        return_url, idempotency_key, verification_level, verification_sources,
+        return_url, idempotency_key, device_id, verification_level, verification_sources,
         verification_tag, metadata, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '[]', 'UNVERIFIED', ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '[]', 'UNVERIFIED', ?, ?, ?)
     `;
 
     this.db.execute(sql, [
@@ -36,6 +36,7 @@ export class PaymentSessionRepository {
       data.queuePosition || 0,
       data.returnUrl || null,
       data.idempotencyKey || null,
+      data.deviceId || null,
       metadata,
       now,
       now
@@ -87,12 +88,35 @@ export class PaymentSessionRepository {
       const nowIso = now.toISOString();
 
       // Check for current active or processing session on this receiving account
-      const activeRow = this.db.queryOne(`
+      let activeRow = this.db.queryOne(`
         SELECT id, status, expires_at, processing_expires_at
         FROM payment_sessions
         WHERE receiving_account_id = ? AND status IN (?, ?)
         LIMIT 1
       `, [receivingAccountId, PaymentStatus.ACTIVE, PaymentStatus.PROCESSING]);
+
+      if (activeRow) {
+        const isStale = (activeRow.status === PaymentStatus.ACTIVE && activeRow.expires_at && new Date(activeRow.expires_at) <= now) ||
+          (activeRow.status === PaymentStatus.PROCESSING && activeRow.processing_expires_at && new Date(activeRow.processing_expires_at) <= now);
+        if (isStale) {
+          const terminalStatus = activeRow.status === PaymentStatus.PROCESSING ? PaymentStatus.FAILED : PaymentStatus.EXPIRED;
+          this.db.execute(`
+            UPDATE payment_sessions
+            SET status = ?, completed_at = ?, updated_at = ?
+            WHERE id = ?
+          `, [terminalStatus, nowIso, nowIso, activeRow.id]);
+          activeRow = null;
+        }
+      }
+
+      // CRITICAL GUARD: If activeRow is THIS session itself, it's ALREADY ACTIVE! Do not demote to QUEUED!
+      if (activeRow && activeRow.id === sessionId) {
+        return {
+          status: PaymentStatus.ACTIVE,
+          queuePosition: 0,
+          expiresAt: activeRow.expires_at ? new Date(activeRow.expires_at) : new Date(now.getTime() + durationMs)
+        };
+      }
 
       if (!activeRow) {
         // Slot is vacant! Grant ACTIVE slot
@@ -118,13 +142,17 @@ export class PaymentSessionRepository {
         };
       } else {
         // Slot is busy! Place in QUEUED
-        const posRow = this.db.queryOne(`
-          SELECT COALESCE(MAX(queue_position), 0) + 1 AS next_pos
-          FROM payment_sessions
-          WHERE receiving_account_id = ? AND status = ?
-        `, [receivingAccountId, PaymentStatus.QUEUED]);
+        const existingSession = this.findById(sessionId);
+        let queuePosition = existingSession?.queuePosition;
+        if (!queuePosition || queuePosition <= 0) {
+          const posRow = this.db.queryOne(`
+            SELECT COALESCE(MAX(queue_position), 0) + 1 AS next_pos
+            FROM payment_sessions
+            WHERE receiving_account_id = ? AND status = ?
+          `, [receivingAccountId, PaymentStatus.QUEUED]);
 
-        const queuePosition = posRow ? posRow.next_pos : 1;
+          queuePosition = posRow ? posRow.next_pos : 1;
+        }
 
         this.db.execute(`
           UPDATE payment_sessions
@@ -197,18 +225,32 @@ export class PaymentSessionRepository {
       const now = new Date().toISOString();
       const attributedObsId = options.attributedObservationId || session.attributedObservationId || null;
 
+      let metadata = session.metadata || {};
+      if (typeof metadata === 'string') {
+        try { metadata = JSON.parse(metadata); } catch { metadata = {}; }
+      }
+      if (options.reason) {
+        metadata = { ...metadata, cancelledReason: options.reason };
+      }
+      if (options.replacedByDeviceId) {
+        metadata = { ...metadata, replacedByDeviceId: options.replacedByDeviceId };
+      }
+      if (options.replacedBySessionId) {
+        metadata = { ...metadata, replacedBySessionId: options.replacedBySessionId };
+      }
+
       this.db.execute(`
         UPDATE payment_sessions
-        SET status = ?, completed_at = ?, attributed_observation_id = ?, updated_at = ?
+        SET status = ?, completed_at = ?, attributed_observation_id = ?, metadata = ?, updated_at = ?
         WHERE id = ?
-      `, [targetStatus, now, attributedObsId, now, sessionId]);
+      `, [targetStatus, now, attributedObsId, JSON.stringify(metadata), now, sessionId]);
 
       // Release slot on receiving account if this session owned it
       if (session.receivingAccountId) {
         this.db.execute(`
           UPDATE payment_receiving_accounts
           SET is_slot_busy = 0, current_active_session_id = NULL, updated_at = ?
-          WHERE id = ? AND current_active_session_id = ?
+          WHERE id = ? AND (current_active_session_id = ? OR current_active_session_id IS NULL)
         `, [now, session.receivingAccountId, sessionId]);
       }
 
@@ -224,7 +266,134 @@ export class PaymentSessionRepository {
     `, [receivingAccountId, PaymentStatus.ACTIVE, PaymentStatus.PROCESSING]);
 
     if (!row) return null;
+    const now = new Date();
+    const isStale = (row.status === PaymentStatus.ACTIVE && row.expires_at && new Date(row.expires_at) <= now) ||
+      (row.status === PaymentStatus.PROCESSING && row.processing_expires_at && new Date(row.processing_expires_at) <= now);
+    if (isStale) {
+      const terminalStatus = row.status === PaymentStatus.PROCESSING ? PaymentStatus.FAILED : PaymentStatus.EXPIRED;
+      this.transitionToTerminal(row.id, terminalStatus);
+      return null;
+    }
     return this.mapRow(row);
+  }
+
+  findCurrentActiveOrProcessingForMerchant(merchantId) {
+    if (!merchantId) return null;
+    const row = this.db.queryOne(`
+      SELECT * FROM payment_sessions
+      WHERE merchant_id = ? AND status IN (?, ?)
+      ORDER BY created_at DESC
+      LIMIT 1
+    `, [merchantId, PaymentStatus.ACTIVE, PaymentStatus.PROCESSING]);
+
+    if (!row) return null;
+    const now = new Date();
+    const isStale = (row.status === PaymentStatus.ACTIVE && row.expires_at && new Date(row.expires_at) <= now) ||
+      (row.status === PaymentStatus.PROCESSING && row.processing_expires_at && new Date(row.processing_expires_at) <= now);
+    if (isStale) {
+      const terminalStatus = row.status === PaymentStatus.PROCESSING ? PaymentStatus.FAILED : PaymentStatus.EXPIRED;
+      this.transitionToTerminal(row.id, terminalStatus);
+      return null;
+    }
+    return this.mapRow(row);
+  }
+
+  findActiveForCustomer(customerId, excludeSessionId = null) {
+    if (!customerId) return null;
+    let query = `
+      SELECT * FROM payment_sessions
+      WHERE customer_id = ? AND status IN (?, ?, ?)
+    `;
+    const params = [customerId, PaymentStatus.ACTIVE, PaymentStatus.PROCESSING, PaymentStatus.QUEUED];
+    if (excludeSessionId) {
+      query += ` AND id != ? `;
+      params.push(excludeSessionId);
+    }
+    query += ` ORDER BY created_at DESC LIMIT 1 `;
+    const row = this.db.queryOne(query, params);
+
+    if (!row) return null;
+    const now = new Date();
+    const isStale = (row.status === PaymentStatus.ACTIVE && row.expires_at && new Date(row.expires_at) <= now) ||
+      (row.status === PaymentStatus.PROCESSING && row.processing_expires_at && new Date(row.processing_expires_at) <= now);
+    if (isStale) {
+      const terminalStatus = row.status === PaymentStatus.PROCESSING ? PaymentStatus.FAILED : PaymentStatus.EXPIRED;
+      this.transitionToTerminal(row.id, terminalStatus);
+      return null;
+    }
+    return this.mapRow(row);
+  }
+
+  findActiveForDevice(deviceId, excludeSessionId = null) {
+    if (!deviceId) return null;
+    let query = `
+      SELECT * FROM payment_sessions
+      WHERE device_id = ? AND status IN (?, ?, ?)
+    `;
+    const params = [deviceId, PaymentStatus.ACTIVE, PaymentStatus.PROCESSING, PaymentStatus.QUEUED];
+    if (excludeSessionId) {
+      query += ` AND id != ? `;
+      params.push(excludeSessionId);
+    }
+    query += ` ORDER BY created_at DESC LIMIT 1 `;
+    const row = this.db.queryOne(query, params);
+
+    if (!row) return null;
+    const now = new Date();
+    const isStale = (row.status === PaymentStatus.ACTIVE && row.expires_at && new Date(row.expires_at) <= now) ||
+      (row.status === PaymentStatus.PROCESSING && row.processing_expires_at && new Date(row.processing_expires_at) <= now);
+    if (isStale) {
+      const terminalStatus = row.status === PaymentStatus.PROCESSING ? PaymentStatus.FAILED : PaymentStatus.EXPIRED;
+      this.transitionToTerminal(row.id, terminalStatus);
+      return null;
+    }
+    return this.mapRow(row);
+  }
+
+  findConflictingActiveSession({ customerId = null, deviceId = null, excludeSessionId = null }) {
+    if (!customerId && !deviceId) return null;
+    let query = `
+      SELECT * FROM payment_sessions
+      WHERE status IN (?, ?, ?)
+    `;
+    const params = [PaymentStatus.ACTIVE, PaymentStatus.PROCESSING, PaymentStatus.QUEUED];
+    if (excludeSessionId) {
+      query += ` AND id != ? `;
+      params.push(excludeSessionId);
+    }
+    if (customerId && deviceId) {
+      query += ` AND (customer_id = ? OR device_id = ?) `;
+      params.push(customerId, deviceId);
+    } else if (customerId) {
+      query += ` AND customer_id = ? `;
+      params.push(customerId);
+    } else {
+      query += ` AND device_id = ? `;
+      params.push(deviceId);
+    }
+    query += ` ORDER BY created_at DESC LIMIT 1 `;
+    const row = this.db.queryOne(query, params);
+
+    if (!row) return null;
+    const now = new Date();
+    const isStale = (row.status === PaymentStatus.ACTIVE && row.expires_at && new Date(row.expires_at) <= now) ||
+      (row.status === PaymentStatus.PROCESSING && row.processing_expires_at && new Date(row.processing_expires_at) <= now);
+    if (isStale) {
+      const terminalStatus = row.status === PaymentStatus.PROCESSING ? PaymentStatus.FAILED : PaymentStatus.EXPIRED;
+      this.transitionToTerminal(row.id, terminalStatus);
+      return null;
+    }
+    return this.mapRow(row);
+  }
+
+  findAllActiveOrPendingForCustomer(customerId) {
+    if (!customerId) return [];
+    const rows = this.db.query(`
+      SELECT * FROM payment_sessions
+      WHERE customer_id = ? AND status IN (?, ?, ?, ?)
+      ORDER BY created_at DESC
+    `, [customerId, PaymentStatus.ACTIVE, PaymentStatus.PROCESSING, PaymentStatus.QUEUED, PaymentStatus.INITIATED]);
+    return rows.map(r => this.mapRow(r));
   }
 
   findQueuedSessions(receivingAccountId) {
@@ -348,9 +517,18 @@ export class PaymentSessionRepository {
         level,
         sources,
         tag,
-        isFirstSuccess: targetStatus === PaymentStatus.SUCCESS
+        isFirstSuccess
       };
     });
+  }
+
+  bindDevice(sessionId, deviceId) {
+    const now = new Date().toISOString();
+    this.db.execute(
+      'UPDATE payment_sessions SET device_id = ?, updated_at = ? WHERE id = ?',
+      [deviceId, now, sessionId]
+    );
+    return this.findById(sessionId);
   }
 
   mapRow(row) {
@@ -373,6 +551,7 @@ export class PaymentSessionRepository {
       returnUrl: row.return_url,
       attributedObservationId: row.attributed_observation_id,
       idempotencyKey: row.idempotency_key,
+      deviceId: row.device_id || null,
       verificationLevel: row.verification_level !== undefined && row.verification_level !== null ? Number(row.verification_level) : 0,
       verificationSources: JSON.parse(row.verification_sources || '[]'),
       verificationTag: row.verification_tag || 'UNVERIFIED',
@@ -382,3 +561,4 @@ export class PaymentSessionRepository {
     };
   }
 }
+

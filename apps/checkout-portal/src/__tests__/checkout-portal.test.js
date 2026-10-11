@@ -70,19 +70,13 @@ describe('Checkout Portal Integration Tests', () => {
       assert.ok(res.text.includes('<!DOCTYPE html>'));
       assert.ok(res.text.includes('name="viewport"'));
       assert.ok(res.text.includes('PAYMENT_ID = "pay_test_uuid_12345"'));
-      assert.ok(res.text.includes('PAYMENT DONE — CHECK MY PAYMENT'));
-      assert.ok(res.text.includes('Payment Slot Queue'));
-      assert.ok(res.text.includes('Payment Options'));
-      assert.ok(res.text.includes('id="sidebarLogoImg"'));
-      assert.ok(res.text.includes('id="footerGuaranteeText"'));
       assert.ok(res.text.includes('id="preGatewayAuthView"'));
       assert.ok(res.text.includes('id="paymentGatewayInterface"'));
-      assert.ok(res.text.includes('id="tabPreAuthLoginBtn"'));
-      assert.ok(res.text.includes('id="tabPreAuthRegisterBtn"'));
-      assert.ok(res.text.includes('Customer Authentication'));
-      assert.ok(res.text.includes('id="providerSection"'));
-      assert.ok(res.text.includes('providers-grid-viewport'));
-      assert.ok(res.text.includes('id="btnLaunchApp"'));
+      assert.ok(res.text.includes('id="authMobileInput"'));
+      assert.ok(res.text.includes('id="btnAuthContinue"'));
+      assert.ok(res.text.includes('WhatsApp Mobile Number'));
+      assert.ok(res.text.includes('id="authStepSignup"'));
+      assert.ok(res.text.includes('id="authStepOtp"'));
 
       // INVARIANT: Zero UPI Offer artifacts
       assert.equal(res.text.includes('6 Offers'), false);
@@ -97,6 +91,57 @@ describe('Checkout Portal Integration Tests', () => {
       assert.ok(res.headers['content-type'].includes('image/svg+xml'));
       assert.ok(res.text.includes('<svg'));
       assert.ok(res.text.includes('</svg>'));
+    });
+
+    test('GET /icons/:filename returns official Play Store icons with correct MIME type', async () => {
+      const res = await get('/icons/gpay.png');
+      assert.equal(res.status, 200);
+      assert.ok(res.headers['content-type'].includes('image/png'));
+      assert.ok(res.text.length > 500);
+
+      const resPhonePe = await get('/icons/phonepe.png');
+      assert.equal(resPhonePe.status, 200);
+      assert.ok(resPhonePe.headers['content-type'].includes('image/png'));
+    });
+
+    test('GET /youpi.js and /sdk/youpi-checkout.js return official integration SDK with CORS', async () => {
+      const resYoupi = await get('/youpi.js');
+      assert.equal(resYoupi.status, 200);
+      assert.ok(resYoupi.headers['content-type'].includes('application/javascript'));
+      assert.equal(resYoupi.headers['access-control-allow-origin'], '*');
+      assert.ok(resYoupi.text.includes('YoupiCheckout'));
+      assert.ok(resYoupi.text.includes('data-youpi-pay'));
+      assert.ok(resYoupi.text.includes('youpi:payment:success'));
+
+      const resLegacy = await get('/sdk/youpi-checkout.js');
+      assert.equal(resLegacy.status, 200);
+      assert.ok(resLegacy.headers['content-type'].includes('application/javascript'));
+      assert.equal(resLegacy.headers['access-control-allow-origin'], '*');
+      assert.ok(resLegacy.text.includes('YoupiCheckout'));
+    });
+
+    test('GET /checkout/:id includes PC 2-column sidebar, UPI Server indicator, and NO visual UPI ID in summary', async () => {
+      const res = await get('/checkout/pay_test_uuid_12345');
+      assert.equal(res.status, 200);
+
+      // Verify PC Redesign sidebar & header exists
+      assert.ok(res.text.includes('ypg-pc-sidebar'));
+      assert.ok(res.text.includes('id="pcMerchantName"'));
+      assert.ok(res.text.includes('id="pcPriceSummaryAmount"'));
+      assert.ok(res.text.includes('ypg-pc-topbar'));
+
+      // Verify UPI Server indicator
+      assert.ok(res.text.includes('id="upiServerHealthIndicator"'));
+      assert.ok(res.text.includes('id="serverStatusLabel"'));
+      assert.ok(res.text.includes('id="serverDowntimeAlert"'));
+
+      // Verify Play Store icons are referenced
+      assert.ok(res.text.includes('/icons/gpay.png'));
+      assert.ok(res.text.includes('/icons/phonepe.png'));
+      assert.ok(res.text.includes('/icons/paytm.png'));
+
+      // INVARIANT: Raw Payee VPA / UPI ID row is REMOVED from Order Summary
+      assert.equal(res.text.includes('id="drawerVpa"'), false);
     });
   });
 });

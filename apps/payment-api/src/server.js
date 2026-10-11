@@ -53,10 +53,13 @@ export class HttpServer {
     const clients = this.sseClients.get(topic);
     if (!clients || clients.size === 0) return;
 
-    const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    const safeJson = (obj) => JSON.stringify(obj, (k, v) => typeof v === 'bigint' ? v.toString() : v);
+    const namedPayload = `event: ${event}\ndata: ${safeJson(data)}\n\n`;
+    const defaultPayload = `data: ${safeJson({ type: event, ...data, event })}\n\n`;
+    const combinedPayload = namedPayload + defaultPayload;
     for (const res of clients) {
       try {
-        res.write(payload);
+        res.write(combinedPayload);
       } catch {
         clients.delete(res);
       }

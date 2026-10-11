@@ -80,10 +80,19 @@
     <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: 400;">| Local Native Process Supervisor (Port 8090)</span>
   </div>
   <div class="header-actions">
+    <a href="http://localhost:6001" class="btn btn-primary" style="background:#2563eb; color:#fff; text-decoration:none;">🏪 Open Unified Merchant Panel ↗</a>
     <button class="btn btn-success" onclick="startAllServices()">▶ Start All Services</button>
     <button class="btn btn-danger" onclick="stopAllServices()">⏹ Stop All Services</button>
   </div>
 </header>
+
+<div style="background:rgba(37,99,235,0.15); border:1px solid #3b82f6; border-radius:0.75rem; padding:0.85rem 1.25rem; margin-bottom:1.5rem; display:flex; justify-content:space-between; align-items:center;">
+  <div>
+    <strong style="color:#60a5fa;">💡 Control Center is now integrated directly inside the Merchant Panel!</strong>
+    <p style="margin:0.25rem 0 0 0; font-size:0.82rem; color:#cbd5e1;">You can manage all host processes, live logs, YOUPI Store toggle, and gateway operations in one place at <code>http://localhost:6001</code>.</p>
+  </div>
+  <a href="http://localhost:6001" class="btn" style="background:#2563eb; color:#fff; text-decoration:none; padding:0.5rem 1rem;">Go to Merchant Panel &rsaquo;</a>
+</div>
 
 <main>
   <!-- Services Process Table -->

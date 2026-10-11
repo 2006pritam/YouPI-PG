@@ -35,6 +35,8 @@ export class PaymentObserverClient {
       observedAt: (data.observedAt instanceof Date ? data.observedAt : new Date(data.observedAt || Date.now())).toISOString(),
       senderVpa: data.senderVpa,
       bankReferenceNumber: data.bankReferenceNumber,
+      sender: data.sender || data.rawPayload?.sender || data.rawPayload?.from,
+      rawText: data.rawText || data.rawPayload?.text || data.rawPayload?.body,
       rawPayload: data.rawPayload || {}
     };
 

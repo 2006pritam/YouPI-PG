@@ -48,17 +48,6 @@ export class ProcessManager extends EventEmitter {
         pid: null
       },
       {
-        id: 'payment-help',
-        name: 'Customer Payment Help',
-        script: path.join(rootDir, 'apps/payment-help/src/index.js'),
-        port: Number(process.env.HELP_PORTAL_PORT || 3000),
-        healthPath: '/health',
-        child: null,
-        status: 'STOPPED',
-        startTime: null,
-        pid: null
-      },
-      {
         id: 'gmail-observer',
         name: 'Gmail Payment Observer',
         script: path.join(rootDir, 'apps/gmail-observer/src/index.js'),
@@ -71,7 +60,7 @@ export class ProcessManager extends EventEmitter {
       },
       {
         id: 'sms-observer',
-        name: 'Google Messages / SMS Observer',
+        name: 'Google Messages / SMS Observer (Legacy)',
         script: path.join(rootDir, 'apps/sms-observer/src/index.js'),
         port: Number(process.env.SMS_OBSERVER_PORT || 6002),
         healthPath: '/health',
@@ -82,7 +71,7 @@ export class ProcessManager extends EventEmitter {
       },
       {
         id: 'coin-wallet-store',
-        name: 'GamerVault Coin Store (Demo)',
+        name: 'YOUPI Showcase Store (Demo)',
         script: path.join(rootDir, 'apps/coin-wallet-store/src/index.js'),
         port: Number(process.env.COIN_STORE_PORT || 5000),
         healthPath: '/health',
@@ -142,12 +131,31 @@ export class ProcessManager extends EventEmitter {
     this.emit('status_change', { id: svc.id, status: svc.status });
 
     const envFile = path.join(rootDir, '.env');
+    const freshEnv = {};
+    if (fs.existsSync(envFile)) {
+      try {
+        const raw = fs.readFileSync(envFile, 'utf8');
+        for (const line of raw.split(/\r?\n/)) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+          const idx = trimmed.indexOf('=');
+          if (idx !== -1) {
+            const key = trimmed.slice(0, idx).trim();
+            let val = trimmed.slice(idx + 1).trim();
+            if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+              val = val.slice(1, -1);
+            }
+            freshEnv[key] = val;
+          }
+        }
+      } catch {}
+    }
     const hasEnvArg = process.execArgv.some(arg => arg.startsWith('--env-file'));
     const execArgv = (!hasEnvArg && fs.existsSync(envFile)) ? [`--env-file=${envFile}`] : [];
 
     const child = fork(svc.script, [], {
       execArgv: [...process.execArgv, ...execArgv],
-      env: { ...process.env, PORT: svc.port.toString() },
+      env: { ...process.env, ...freshEnv, PORT: svc.port.toString() },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc']
     });
 
@@ -214,6 +222,9 @@ export class ProcessManager extends EventEmitter {
    */
   async startAll() {
     for (const svc of this.services) {
+      if (svc.legacy && process.env.ENABLE_LEGACY_CHROME_OBSERVERS !== 'true') {
+        continue;
+      }
       try {
         await this.startService(svc.id);
       } catch (err) {

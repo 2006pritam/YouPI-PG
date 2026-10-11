@@ -9,6 +9,6 @@
     "test": "node --test src/__tests__/**/*.test.js"
   },
   "dependencies": {
-    "@youpi/common": "workspace:*"
+    "@youpi/common": "*"
   }
 }

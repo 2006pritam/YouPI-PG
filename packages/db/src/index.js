@@ -8,3 +8,5 @@ export * from './repositories/payment-session.repository.js';
 export * from './repositories/observation.repository.js';
 export * from './repositories/support-ticket.repository.js';
 export * from './repositories/audit-log.repository.js';
+export * from './repositories/device.repository.js';
+

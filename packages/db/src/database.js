@@ -1,6 +1,27 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { runMigrations } from './migrate.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const repoRoot = path.resolve(__dirname, '../../..');
+
+/**
+ * Checks if core tables exist and executes migrations if not yet initialized.
+ * @param {Database} db
+ */
+export function ensureDatabaseInitialized(db) {
+  try {
+    const row = db.queryOne("SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='merchants'");
+    if (!row || Number(row.count) === 0) {
+      return runMigrations(db);
+    }
+  } catch {
+    return runMigrations(db);
+  }
+}
 
 /**
  * Universal Database Client for YOUPI PG.
@@ -9,13 +30,24 @@ import { DatabaseSync } from 'node:sqlite';
  */
 export class Database {
   /**
-   * @param {{ dbPath?: string, inMemory?: boolean }} [options={}]
+   * @param {{ dbPath?: string, inMemory?: boolean, autoMigrate?: boolean }} [options={}]
    */
   constructor(options = {}) {
     if (options.inMemory) {
       this.db = new DatabaseSync(':memory:');
     } else {
-      const dbPath = options.dbPath || process.env.SQLITE_DB_PATH || './data/youpi_pg.sqlite';
+      let dbPath;
+      if (options.dbPath) {
+        dbPath = path.isAbsolute(options.dbPath)
+          ? options.dbPath
+          : path.resolve(process.cwd(), options.dbPath);
+      } else if (process.env.SQLITE_DB_PATH) {
+        dbPath = path.isAbsolute(process.env.SQLITE_DB_PATH)
+          ? process.env.SQLITE_DB_PATH
+          : path.resolve(repoRoot, process.env.SQLITE_DB_PATH);
+      } else {
+        dbPath = path.resolve(repoRoot, 'data/youpi_pg.sqlite');
+      }
       const dir = path.dirname(dbPath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
@@ -29,6 +61,11 @@ export class Database {
     try {
       this.db.exec('PRAGMA journal_mode = WAL;');
     } catch {}
+
+    // Auto-initialize SQLite on first boot if core tables do not exist
+    if (!options.inMemory && options.autoMigrate !== false) {
+      ensureDatabaseInitialized(this);
+    }
   }
 
   /**
@@ -50,6 +87,10 @@ export class Database {
     const normalized = this.normalizeSql(sql);
     const stmt = this.db.prepare(normalized);
     return stmt.run(...params);
+  }
+
+  run(sql, params = []) {
+    return this.execute(sql, params);
   }
 
   /**
@@ -126,6 +167,7 @@ let defaultDbInstance = null;
 export function getDatabase(options = {}) {
   if (!defaultDbInstance) {
     defaultDbInstance = new Database(options);
+    ensureDatabaseInitialized(defaultDbInstance);
   }
   return defaultDbInstance;
 }

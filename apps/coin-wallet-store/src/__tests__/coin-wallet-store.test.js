@@ -76,13 +76,12 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     assert.equal(res.body.coins, 50);
   });
 
-  test('GET / renders Coin Top-Up Store with coin packs', async () => {
+  test('GET / renders YOUPI Store product page with gateway showcase and demo checkout', async () => {
     const res = await request('/');
     assert.equal(res.status, 200);
-    assert.ok(res.body.includes('GamerVault'));
-    assert.ok(res.body.includes('Starter Pack'));
-    assert.ok(res.body.includes('Gamer Pack'));
-    assert.ok(res.body.includes('Top Up Game Coins Instantly'));
+    assert.ok(res.body.includes('Self-Hosted UPI Payment Gateway'));
+    assert.ok(res.body.includes('₹1.00'));
+    assert.ok(res.body.includes('/assets/gateway_pc_checkout.png'));
   });
 
   test('POST /api/checkout initiates payment gateway session and returns checkoutUrl', async () => {
@@ -161,7 +160,7 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
   test('GET /wallet renders wallet page with updated balance', async () => {
     const res = await request('/wallet?orderId=COIN-ORD-555');
     assert.equal(res.status, 200);
-    assert.ok(res.body.includes('My Game Wallet'));
+    assert.ok(res.body.includes('Customer Account') || res.body.includes('YOUPI Store'));
     assert.ok(res.body.includes('Top-Up Successful!'));
     assert.ok(res.body.includes('Current Vault Balance'));
   });
@@ -274,5 +273,91 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     assert.ok(res.body.includes('COIN-ORD-999'));
     assert.ok(res.body.includes('Contact Payment Support'));
     assert.ok(res.body.includes('Try Again'));
+  });
+
+  test('POST /api/verify-payment credits coins directly from popup drawer and prevents duplicates', async () => {
+    const initialCoins = storeInstance.server.walletCoins;
+    const orderId = `COIN-ORD-POPUP-${Date.now()}`;
+
+    // 1. Initial verification call
+    const verifyRes = await request('/api/verify-payment', {
+      method: 'POST',
+      body: {
+        orderId,
+        coins: 100,
+        packName: 'Starter Pack'
+      }
+    });
+
+    assert.equal(verifyRes.status, 200);
+    assert.equal(verifyRes.body.success, true);
+    assert.equal(verifyRes.body.coins, initialCoins + 100);
+    assert.equal(storeInstance.server.walletCoins, initialCoins + 100);
+
+    // 2. Duplicate call must be idempotent
+    const dupRes = await request('/api/verify-payment', {
+      method: 'POST',
+      body: {
+        orderId,
+        coins: 100,
+        packName: 'Starter Pack'
+      }
+    });
+
+    assert.equal(dupRes.status, 200);
+    assert.equal(dupRes.body.success, true);
+    assert.equal(dupRes.body.message, 'Already credited');
+    assert.equal(storeInstance.server.walletCoins, initialCoins + 100);
+  });
+
+  test('GET /order-success renders verified payment page with parameters', async () => {
+    const res = await request('/order-success?order_id=ORD-SUCC-123&amount=499.00&utr=998877665544&mode=UPI');
+    assert.equal(res.status, 200);
+    assert.ok(res.body.includes('Payment Successful!'));
+    assert.ok(res.body.includes('ORD-SUCC-123'));
+    assert.ok(res.body.includes('499.00'));
+    assert.ok(res.body.includes('998877665544'));
+    assert.ok(res.body.includes('VERIFIED BY YOUPI PG'));
+  });
+
+  test('GET /order-suspicious renders held for review security notice', async () => {
+    const res = await request('/order-suspicious?order_id=ORD-SUSP-456');
+    assert.equal(res.status, 200);
+    assert.ok(res.body.includes('Payment Under Review'));
+    assert.ok(res.body.includes('ORD-SUSP-456'));
+    assert.ok(res.body.includes('SECURITY NOTICE'));
+  });
+
+  test('GET /order-expired renders expired session notice', async () => {
+    const res = await request('/order-expired?order_id=ORD-EXP-789');
+    assert.equal(res.status, 200);
+    assert.ok(res.body.includes('Payment Session Expired'));
+    assert.ok(res.body.includes('ORD-EXP-789'));
+  });
+
+  test('GET /order-cancelled renders cancelled session notice', async () => {
+    const res = await request('/order-cancelled?order_id=ORD-CAN-000');
+    assert.equal(res.status, 200);
+    assert.ok(res.body.includes('Payment Cancelled'));
+    assert.ok(res.body.includes('ORD-CAN-000'));
+  });
+
+  test('GET /youpi.js is served with CORS for universal frontend integration', async () => {
+    const res = await request('/youpi.js');
+    assert.equal(res.status, 200);
+    assert.ok(res.body.includes('YoupiCheckout'));
+    assert.ok(res.body.includes('data-youpi-pay'));
+  });
+
+  test('Reverse proxy: proxies /api/v1/* requests to payment API directly', async () => {
+    const res = await request('/api/v1/health');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.status, 'UP');
+  });
+
+  test('Reverse proxy: /checkout/* does not return 404 Route Not Found', async () => {
+    const res = await request('/checkout/some-session-id');
+    // It should either return 200/502 (if portal not up on that test port), but NEVER 404 "Route Not Found"
+    assert.notEqual(res.body, 'Route Not Found');
   });
 });

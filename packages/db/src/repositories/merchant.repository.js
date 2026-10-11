@@ -49,8 +49,18 @@ export class MerchantRepository {
     return this.mapRow(row);
   }
 
+  getDefault() {
+    const canonical = this.findById('00000000-0000-0000-0000-000000000001');
+    if (canonical) return canonical;
+    const all = this.findAll();
+    return all[0] || null;
+  }
+
   findAll() {
-    const rows = this.db.query('SELECT * FROM merchants ORDER BY created_at DESC');
+    const rows = this.db.query(`
+      SELECT * FROM merchants 
+      ORDER BY CASE WHEN id = '00000000-0000-0000-0000-000000000001' THEN 0 ELSE 1 END, created_at ASC
+    `);
     return rows.map(r => this.mapRow(r));
   }
 

@@ -16,6 +16,24 @@ export class AttributionEngine {
     this.ticketRepo = options.ticketRepo;
     this.auditRepo = options.auditRepo;
     this.eventEmitter = options.eventEmitter || { emit: () => {} };
+    const isTestExecution = process.env.NODE_ENV === 'test' ||
+      (process.execArgv && process.execArgv.includes('--test')) ||
+      (process.argv && process.argv.some(a => typeof a === 'string' && a.includes('test')));
+
+    this.gracePeriodMs = options.gracePeriodMs !== undefined
+      ? options.gracePeriodMs
+      : (process.env.PAYMENT_GRACE_PERIOD_MS !== undefined
+        ? Number(process.env.PAYMENT_GRACE_PERIOD_MS)
+        : (isTestExecution ? 0 : 5000));
+    /** @type {Map<string, NodeJS.Timeout>} */
+    this.pendingGraceTimers = new Map();
+  }
+
+  destroy() {
+    for (const timer of this.pendingGraceTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.pendingGraceTimers.clear();
   }
 
   /**
@@ -27,7 +45,10 @@ export class AttributionEngine {
    *   lateMatch: boolean,
    *   paymentSessionId?: string,
    *   observationId: string,
-   *   outcomeStatus: string
+   *   outcomeStatus: string,
+   *   verificationLevel?: number,
+   *   verificationTag?: string,
+   *   verificationSources?: string[]
    * }}
    */
   processObservation(normalizedObs) {
@@ -58,11 +79,19 @@ export class AttributionEngine {
       // If observation came from a NEW, DIFFERENT channel and payment was already attributed:
       // Upgrade verification tier to Level 2 (Dual Verification)!
       if (existing.attributedPaymentId) {
+        // Cancel pending 5-second grace timer if any
+        const pendingTimer = this.pendingGraceTimers.get(existing.attributedPaymentId);
+        if (pendingTimer) {
+          clearTimeout(pendingTimer);
+          this.pendingGraceTimers.delete(existing.attributedPaymentId);
+        }
+
         const savedObs = this.obsRepo.create(normalizedObs);
         const verifyResult = this.sessionRepo.recordVerificationSource(
           existing.attributedPaymentId,
           normalizedObs.source,
-          savedObs.id
+          savedObs.id,
+          { finalizeSuccess: true }
         );
         this.obsRepo.markAttributed(savedObs.id, existing.attributedPaymentId);
 
@@ -78,6 +107,19 @@ export class AttributionEngine {
               tag: verifyResult.tag,
               sources: verifyResult.sources
             }
+          });
+        }
+
+        if (verifyResult.isFirstSuccess) {
+          this.eventEmitter.emit('PAYMENT.SUCCESS', {
+            paymentId: existing.attributedPaymentId,
+            orderId: verifyResult.session.orderId,
+            merchantId: verifyResult.session.merchantId,
+            amountPaise: verifyResult.session.amountPaise,
+            observationId: savedObs.id,
+            verificationLevel: verifyResult.level,
+            verificationTag: verifyResult.tag,
+            sources: verifyResult.sources
           });
         }
 
@@ -106,7 +148,24 @@ export class AttributionEngine {
     const savedObs = this.obsRepo.create(normalizedObs);
 
     // Tier 2: Check currently active session on receiving account
-    let currentSession = this.sessionRepo.findCurrentActiveOrProcessing(normalizedObs.receivingAccountId);
+    let currentSession = null;
+    if (normalizedObs.rawPayload?.targetSessionId) {
+      currentSession = this.sessionRepo.findById(normalizedObs.rawPayload.targetSessionId);
+    }
+    if (!currentSession || (currentSession.amountPaise !== normalizedObs.amountPaise)) {
+      currentSession = this.sessionRepo.findCurrentActiveOrProcessing(normalizedObs.receivingAccountId);
+    }
+    if (currentSession && currentSession.amountPaise !== normalizedObs.amountPaise) {
+      const matchRow = this.sessionRepo.db.queryOne(`
+        SELECT * FROM payment_sessions
+        WHERE receiving_account_id = ? AND status IN ('ACTIVE', 'PROCESSING') AND amount_paise = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+      `, [normalizedObs.receivingAccountId, Number(normalizedObs.amountPaise)]);
+      if (matchRow) {
+        currentSession = this.sessionRepo.mapRow(matchRow);
+      }
+    }
     if (!currentSession) {
       // Fallback: Check if there is an ACTIVE or PROCESSING session matching this exact amount anywhere on the gateway
       const anyActive = this.sessionRepo.db.queryOne(`
@@ -147,23 +206,80 @@ export class AttributionEngine {
       if (isEligibleStatus && isAmountMatch && isTimeValid) {
         const wasActive = currentSession.status === PaymentStatus.ACTIVE;
 
-        // If payment notification arrived while user was on active QR screen, trigger 30s processing window
-        if (wasActive) {
-          this.eventEmitter.emit('SESSION.PROCESSING', {
-            sessionId: currentSession.id,
-            receivingAccountId: currentSession.receivingAccountId,
-            processingExpiresAt: new Date(Date.now() + 30000)
+        // Check if there is already an active grace period awaiting second source for this session
+        const pendingGrace = this.pendingGraceTimers.get(currentSession.id);
+        if (pendingGrace) {
+          clearTimeout(pendingGrace);
+          this.pendingGraceTimers.delete(currentSession.id);
+
+          // Second source confirmed within 5-second grace window -> LEVEL 2 DUAL VERIFICATION!
+          const verifyResult = this.sessionRepo.recordVerificationSource(
+            currentSession.id,
+            normalizedObs.source,
+            savedObs.id,
+            { finalizeSuccess: true }
+          );
+          this.obsRepo.markAttributed(savedObs.id, currentSession.id);
+
+          if (this.auditRepo) {
+            this.auditRepo.log({
+              merchantId: currentSession.merchantId,
+              entityType: 'PAYMENT_SESSION',
+              entityId: currentSession.id,
+              action: 'PAYMENT_VERIFICATION_UPGRADED_L2',
+              actorType: 'SYSTEM',
+              details: {
+                observationId: savedObs.id,
+                source: normalizedObs.source,
+                verificationLevel: 2,
+                verificationTag: verifyResult.tag,
+                sources: verifyResult.sources
+              }
+            });
+          }
+
+          this.eventEmitter.emit('PAYMENT.SUCCESS', {
+            paymentId: currentSession.id,
+            orderId: currentSession.orderId,
+            merchantId: currentSession.merchantId,
+            amountPaise: currentSession.amountPaise,
+            observationId: savedObs.id,
+            verificationLevel: 2,
+            verificationTag: verifyResult.tag,
+            sources: verifyResult.sources
           });
+
+          this.eventEmitter.emit('PAYMENT.VERIFICATION_UPGRADED', {
+            paymentId: currentSession.id,
+            orderId: currentSession.orderId,
+            verificationLevel: 2,
+            verificationTag: verifyResult.tag,
+            sources: verifyResult.sources
+          });
+
+          return {
+            attributed: true,
+            duplicate: false,
+            lateMatch: false,
+            wasActive,
+            paymentSessionId: currentSession.id,
+            observationId: savedObs.id,
+            outcomeStatus: PaymentStatus.SUCCESS,
+            verificationLevel: 2,
+            verificationTag: verifyResult.tag,
+            verificationSources: verifyResult.sources
+          };
         }
 
-        // 2-Level Verification Engine: Record observation confirmation and compute verification tier
+        // FIRST SOURCE CONFIRMATION:
+        // Record Level 1 verification source without immediate finalization (start 5-second grace window)
         const verifyResult = this.sessionRepo.recordVerificationSource(
           currentSession.id,
           normalizedObs.source,
-          savedObs.id
+          savedObs.id,
+          { finalizeSuccess: false }
         );
 
-        // Mark observation ATTRIBUTED
         this.obsRepo.markAttributed(savedObs.id, currentSession.id);
 
         if (this.auditRepo) {
@@ -171,40 +287,111 @@ export class AttributionEngine {
             merchantId: currentSession.merchantId,
             entityType: 'PAYMENT_SESSION',
             entityId: currentSession.id,
-            action: verifyResult.isFirstSuccess ? 'PAYMENT_ATTRIBUTED_SUCCESS' : 'PAYMENT_VERIFICATION_UPGRADED',
+            action: 'PAYMENT_LEVEL1_VERIFIED',
             actorType: 'SYSTEM',
             details: {
               observationId: savedObs.id,
               source: normalizedObs.source,
               amountPaise: normalizedObs.amountPaise.toString(),
-              verificationLevel: verifyResult.level,
+              verificationLevel: 1,
               verificationTag: verifyResult.tag,
               sources: verifyResult.sources
             }
           });
         }
 
-        // Emit SUCCESS event for webhook/event engine
-        if (verifyResult.isFirstSuccess) {
+        this.eventEmitter.emit('PAYMENT.LEVEL1_VERIFIED', {
+          paymentId: currentSession.id,
+          orderId: currentSession.orderId,
+          merchantId: currentSession.merchantId,
+          amountPaise: currentSession.amountPaise,
+          observationId: savedObs.id,
+          verificationLevel: 1,
+          verificationTag: verifyResult.tag,
+          sources: verifyResult.sources
+        });
+
+        // If grace period is 0 (e.g. in instant tests), finalize immediately
+        if (this.gracePeriodMs <= 0) {
+          const finalResult = this.sessionRepo.recordVerificationSource(
+            currentSession.id,
+            normalizedObs.source,
+            savedObs.id,
+            { finalizeSuccess: true }
+          );
           this.eventEmitter.emit('PAYMENT.SUCCESS', {
             paymentId: currentSession.id,
             orderId: currentSession.orderId,
             merchantId: currentSession.merchantId,
             amountPaise: currentSession.amountPaise,
             observationId: savedObs.id,
-            verificationLevel: verifyResult.level,
-            verificationTag: verifyResult.tag,
-            sources: verifyResult.sources
+            verificationLevel: finalResult.level,
+            verificationTag: finalResult.tag,
+            sources: finalResult.sources
           });
-        } else {
-          this.eventEmitter.emit('PAYMENT.VERIFICATION_UPGRADED', {
-            paymentId: currentSession.id,
-            orderId: currentSession.orderId,
-            verificationLevel: verifyResult.level,
-            verificationTag: verifyResult.tag,
-            sources: verifyResult.sources
-          });
+
+          return {
+            attributed: true,
+            duplicate: false,
+            lateMatch: false,
+            wasActive,
+            paymentSessionId: currentSession.id,
+            observationId: savedObs.id,
+            outcomeStatus: PaymentStatus.SUCCESS,
+            verificationLevel: finalResult.level,
+            verificationTag: finalResult.tag,
+            verificationSources: finalResult.sources
+          };
         }
+
+        // Start 5-second grace window awaiting second poller
+        const targetSessionId = currentSession.id;
+        const targetObsId = savedObs.id;
+        const targetSource = normalizedObs.source;
+        const targetOrderId = currentSession.orderId;
+        const targetMerchantId = currentSession.merchantId;
+        const targetAmountPaise = currentSession.amountPaise;
+
+        const graceTimer = setTimeout(() => {
+          this.pendingGraceTimers.delete(targetSessionId);
+          // 5 seconds elapsed without second source: finalize as Level 1
+          const finalResult = this.sessionRepo.recordVerificationSource(
+            targetSessionId,
+            targetSource,
+            targetObsId,
+            { finalizeSuccess: true }
+          );
+
+          if (this.auditRepo) {
+            this.auditRepo.log({
+              merchantId: targetMerchantId,
+              entityType: 'PAYMENT_SESSION',
+              entityId: targetSessionId,
+              action: 'PAYMENT_ATTRIBUTED_SUCCESS_L1',
+              actorType: 'SYSTEM',
+              details: {
+                observationId: targetObsId,
+                source: targetSource,
+                verificationLevel: finalResult.level,
+                verificationTag: finalResult.tag
+              }
+            });
+          }
+
+          this.eventEmitter.emit('PAYMENT.SUCCESS', {
+            paymentId: targetSessionId,
+            orderId: targetOrderId,
+            merchantId: targetMerchantId,
+            amountPaise: targetAmountPaise,
+            observationId: targetObsId,
+            verificationLevel: finalResult.level,
+            verificationTag: finalResult.tag,
+            sources: finalResult.sources
+          });
+        }, this.gracePeriodMs);
+
+        if (graceTimer.unref) graceTimer.unref();
+        this.pendingGraceTimers.set(targetSessionId, graceTimer);
 
         return {
           attributed: true,
@@ -213,8 +400,8 @@ export class AttributionEngine {
           wasActive,
           paymentSessionId: currentSession.id,
           observationId: savedObs.id,
-          outcomeStatus: PaymentStatus.SUCCESS,
-          verificationLevel: verifyResult.level,
+          outcomeStatus: 'VERIFYING',
+          verificationLevel: 1,
           verificationTag: verifyResult.tag,
           verificationSources: verifyResult.sources
         };

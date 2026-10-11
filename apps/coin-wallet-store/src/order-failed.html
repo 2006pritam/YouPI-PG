@@ -3,78 +3,129 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Payment Unsuccessful — GamerVault</title>
+  <title>Payment Failed · YOUPI Store</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Outfit:wght@600;700;800;900&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #0f172a;
-      --card-bg: #1e293b;
-      --border: #334155;
-      --primary: #f59e0b;
-      --primary-hover: #d97706;
+      --bg: #0b1120;
+      --card-bg: #111c34;
+      --border: #1e293b;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
       --danger: #ef4444;
+      --danger-glow: rgba(239, 68, 68, 0.2);
       --text: #f8fafc;
-      --text-muted: #cbd5e1;
+      --text-muted: #94a3b8;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
 
     header {
-      background: #020617;
+      background: #060a12;
       border-bottom: 1px solid var(--border);
-      padding: 1.25rem 2rem;
+      padding: 1rem 2rem;
       display: flex;
       align-items: center;
       justify-content: space-between;
     }
 
-    .brand { font-size: 1.35rem; font-weight: 800; color: #f59e0b; text-decoration: none; display: flex; align-items: center; gap: 0.5rem; }
+    .brand {
+      font-size: 1.25rem;
+      font-weight: 800;
+      font-family: 'Outfit', sans-serif;
+      color: #38bdf8;
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
 
-    main { max-width: 620px; width: 100%; margin: 2.5rem auto; padding: 1.5rem; flex: 1; }
+    main { max-width: 640px; width: 100%; margin: 2rem auto; padding: 1.5rem; flex: 1; }
 
-    .failed-card {
+    .result-card {
       background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: 1.25rem;
       padding: 2.5rem 2rem;
       text-align: center;
+      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.45);
     }
 
-    .status-icon {
-      width: 72px;
-      height: 72px;
+    .status-icon-wrap {
+      width: 76px;
+      height: 76px;
       border-radius: 50%;
       background: rgba(239, 68, 68, 0.15);
-      border: 2px solid rgba(239, 68, 68, 0.3);
+      border: 2px solid var(--danger);
       color: var(--danger);
       font-size: 2.25rem;
       display: flex;
       align-items: center;
       justify-content: center;
       margin: 0 auto 1.25rem auto;
+      box-shadow: 0 0 25px var(--danger-glow);
     }
 
-    .failed-title { font-size: 1.75rem; font-weight: 800; color: #ffffff; margin-bottom: 0.5rem; }
-    .failed-reason { font-size: 0.95rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 1.75rem; }
+    .result-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.85rem;
+      font-weight: 800;
+      color: #ffffff;
+      margin-bottom: 0.5rem;
+    }
 
-    .order-summary-box {
-      background: #0b1120;
+    .result-subtitle {
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin-bottom: 1.75rem;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #f87171;
+      font-size: 0.8rem;
+      font-weight: 700;
+      padding: 0.35rem 0.85rem;
+      border-radius: 20px;
+      margin-bottom: 1.5rem;
+      letter-spacing: 0.02em;
+    }
+
+    .details-table {
+      background: #070d18;
       border: 1px solid var(--border);
-      border-radius: 0.75rem;
-      padding: 1rem 1.25rem;
-      text-align: left;
+      border-radius: 0.85rem;
+      padding: 1.25rem;
       margin-bottom: 2rem;
+      text-align: left;
+    }
+
+    .detail-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
+      padding: 0.65rem 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 0.9rem;
     }
 
-    .btn-row { display: flex; gap: 0.75rem; flex-direction: column; }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-label { color: var(--text-muted); font-weight: 500; }
+    .detail-val { color: #ffffff; font-weight: 700; font-family: monospace; font-size: 0.95rem; }
 
+    .btn-row { display: flex; gap: 0.85rem; }
     .btn {
-      width: 100%;
+      flex: 1;
       padding: 0.85rem 1.25rem;
-      border-radius: 0.6rem;
+      border-radius: 0.65rem;
       border: none;
       font-weight: 700;
       font-size: 0.95rem;
@@ -87,75 +138,64 @@
       transition: all 0.2s;
     }
 
-    .btn-retry { background: #f59e0b; color: #000; }
-    .btn-retry:hover { background: var(--primary-hover); }
-    .btn-support { background: #334155; color: #ffffff; }
-    .btn-support:hover { background: #475569; }
+    .btn-primary { background: var(--primary); color: #ffffff; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-secondary { background: #1e293b; color: #f8fafc; border: 1px solid var(--border); }
+    .btn-secondary:hover { background: #334155; }
   </style>
 </head>
 <body>
 
 <header>
   <a href="/" class="brand">
-    <span>🪙 GamerVault</span>
+    <span>⚡ YOUPI Store</span>
   </a>
-  <a href="/" style="color:var(--text-muted); font-size:0.85rem; text-decoration:none;">
-    &larr; Back to Coin Store
-  </a>
+  <span style="font-size: 0.82rem; color: #64748b; font-weight: 600;">Reference Implementation Demo</span>
 </header>
 
 <main>
-  <div class="failed-card">
-    <div class="status-icon">✕</div>
-    <h1 class="failed-title">Payment Unsuccessful</h1>
-    <p class="failed-reason" id="failureMessage">
-      Your payment could not be confirmed by the bank. If money was deducted from your UPI account, please do not worry—submit your UTR in the Resolution Desk and our staff will credit your coins immediately.
-    </p>
+  <div class="result-card">
+    <div class="status-icon-wrap">✕</div>
+    <h1 class="result-title">Payment Unsuccessful</h1>
+    <p class="result-subtitle">We could not confirm your payment. If any amount was debited from your bank account, it will automatically be refunded within 24-48 hours by your bank.</p>
 
-    <div class="order-summary-box">
-      <div>
-        <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Order Reference</div>
-        <strong style="font-size:1rem; color:#fff;" id="orderIdText">ORDER-#</strong>
+    <div class="status-badge">
+      <span>●</span> PAYMENT FAILED
+    </div>
+
+    <div class="details-table">
+      <div class="detail-row">
+        <span class="detail-label">Order ID</span>
+        <span class="detail-val" id="valOrderId">{{ORDER_ID}}</span>
       </div>
-      <div>
-        <span class="badge" style="background:rgba(239,68,68,0.2); color:#f87171; border:1px solid rgba(239,68,68,0.3); padding:0.25rem 0.6rem; border-radius:9999px; font-size:0.75rem; font-weight:700;" id="reasonBadge">FAILED</span>
+      <div class="detail-row">
+        <span class="detail-label">Failure Reason</span>
+        <span class="detail-val" id="valReason" style="color: #f87171;">{{REASON}}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Status</span>
+        <span class="detail-val" style="color: #f87171;">FAILED</span>
       </div>
     </div>
 
     <div class="btn-row">
-      <a href="/" class="btn btn-retry">
-        ⚡ Try Again &amp; Restart Order
-      </a>
-      <a id="btnGoToHelp" href="#" class="btn btn-support">
-        🛡️ Contact Payment Support &amp; Claim UTR &rsaquo;
-      </a>
+      <a href="/" class="btn btn-primary">Try Again</a>
+      <a href="mailto:support@youpipg.com" class="btn btn-secondary">Contact Payment Support</a>
     </div>
   </div>
 </main>
 
 <script>
-  const urlParams = new URLSearchParams(window.location.search);
-  const orderId = urlParams.get('orderId') || 'UNKNOWN';
-  const paymentId = urlParams.get('paymentId') || '';
-  const reason = (urlParams.get('reason') || 'FAILED').toUpperCase();
-
-  document.getElementById('orderIdText').textContent = orderId;
-  document.getElementById('reasonBadge').textContent = reason;
-
-  const msgEl = document.getElementById('failureMessage');
-  if (reason === 'EXPIRED') {
-    msgEl.textContent = 'The 5-minute active payment window expired before verification was completed. If you already transferred funds from your UPI app, click below to claim your UTR.';
-  } else if (reason === 'CANCELLED') {
-    msgEl.textContent = 'You cancelled this payment session. Your slot was released and no funds were deducted.';
-  } else {
-    msgEl.textContent = 'No incoming bank confirmation was detected during the 30-second verification period. If money was debited, our automated observation engine or merchant staff will reconcile your transaction.';
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('order_id') || params.get('orderId')) {
+    const oId = params.get('order_id') || params.get('orderId');
+    const el = document.getElementById('valOrderId');
+    if (el && (el.textContent === '{{ORDER_ID}}' || !el.textContent)) el.textContent = oId;
   }
-
-  // Support link: dynamically resolves to production domain or local port 3000
-  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-  const helpBase = isLocal ? 'http://localhost:3000' : 'https://help.example.com';
-  const helpUrl = `${helpBase}/support?orderId=${encodeURIComponent(orderId)}&paymentId=${encodeURIComponent(paymentId)}`;
-  document.getElementById('btnGoToHelp').href = helpUrl;
+  if (params.get('reason')) {
+    const el = document.getElementById('valReason');
+    if (el && (el.textContent === '{{REASON}}' || !el.textContent)) el.textContent = params.get('reason');
+  }
 </script>
 
 </body>

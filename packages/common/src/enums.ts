@@ -27,8 +27,17 @@ export enum PublicPaymentOutcome {
  */
 export enum PaymentMethod {
   UPI = 'UPI',
+  COD = 'COD',
   CASH_COUNTER = 'CASH_COUNTER',
   CARD_COUNTER = 'CARD_COUNTER'
+}
+
+/**
+ * Merchant gateway selling modes.
+ */
+export enum SellingMode {
+  ONLINE = 'ONLINE',
+  OFFLINE = 'OFFLINE'
 }
 
 /**
@@ -38,6 +47,8 @@ export enum PaymentMethod {
 export enum ObserverSource {
   GMAIL = 'GMAIL',
   GOOGLE_MESSAGES = 'GOOGLE_MESSAGES',
+  ANDROID_OBSERVER = 'ANDROID_OBSERVER',
+  SMS_GATEWAY = 'SMS_GATEWAY',
   MANUAL_COUNTER = 'MANUAL_COUNTER'
 }
 

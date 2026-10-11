@@ -34,8 +34,15 @@ export class AdminServer {
   }
 
   renderHtml() {
+    try {
+      this.template = fs.readFileSync(this.htmlTemplatePath, 'utf8');
+    } catch {}
+
     let html = this.template;
-    html = html.replaceAll('{{API_BASE_URL}}', this.apiBaseUrl);
+    // Always use empty string '' so client fetch calls hit the merchant admin's own /api proxy!
+    // This completely eliminates CORS errors, tunnel downtime 530s, and cross-origin failures.
+    const clientApiBase = '';
+    html = html.replaceAll('{{API_BASE_URL}}', clientApiBase);
     html = html.replaceAll('{{ANDROID_ENROLLMENT_SECRET}}', process.env.ANDROID_ENROLLMENT_SECRET || 'android_pairing_enrollment_secret_key_32_chars');
     return html;
   }
@@ -74,6 +81,96 @@ export class AdminServer {
         });
         res.end(JSON.stringify(tickets));
         return;
+      }
+
+      // Merged Control Center Supervisor Proxy: /api/services/* and /api/logs/stream -> Control Center on port 8090
+      if (pathname.startsWith('/api/services') || pathname === '/api/logs/stream') {
+        const ccPort = Number(process.env.CONTROL_CENTER_PORT || 8090);
+        const proxyReq = http.request({
+          hostname: '127.0.0.1',
+          port: ccPort,
+          path: req.url,
+          method: req.method,
+          headers: {
+            ...req.headers,
+            host: `localhost:${ccPort}`
+          }
+        }, (proxyRes) => {
+          res.writeHead(proxyRes.statusCode, proxyRes.headers);
+          proxyRes.pipe(res);
+        });
+
+        proxyReq.on('error', (err) => {
+          if (!res.headersSent) {
+            res.writeHead(502, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Control center supervisor unavailable', details: err.message }));
+          }
+        });
+
+        req.on('data', chunk => proxyReq.write(chunk));
+        req.on('end', () => proxyReq.end());
+        return;
+      }
+
+      // Transparent API Proxy: /api/* -> Payment Core REST API
+      if (pathname.startsWith('/api/')) {
+        const targetPort = Number(process.env.PAYMENT_API_PORT || 6100);
+        const defaultMerchant = this.merchantRepo.getDefault ? this.merchantRepo.getDefault() : (this.merchantRepo.findById('00000000-0000-0000-0000-000000000001') || this.merchantRepo.findAll()[0]);
+        const defaultMerchantId = defaultMerchant?.id || '00000000-0000-0000-0000-000000000001';
+        const proxyReq = http.request({
+          hostname: '127.0.0.1',
+          port: targetPort,
+          path: req.url,
+          method: req.method,
+          headers: {
+            ...req.headers,
+            'x-merchant-id': req.headers['x-merchant-id'] || defaultMerchantId,
+            host: `localhost:${targetPort}`,
+            'x-forwarded-host': req.headers.host || '',
+            'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'http'
+          }
+        }, (proxyRes) => {
+          res.writeHead(proxyRes.statusCode, proxyRes.headers);
+          proxyRes.pipe(res);
+        });
+
+        proxyReq.on('error', (err) => {
+          if (!res.headersSent) {
+            res.writeHead(502, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Gateway API unavailable', details: err.message }));
+          }
+        });
+
+        req.pipe(proxyReq);
+        return;
+      }
+
+      // Download Android Companion APK
+      if (pathname === '/youpi-sms-gateway.apk' || pathname === '/api/v1/admin/sms-gateway/download-apk') {
+        const apkCandidates = [
+          path.resolve(__dirname, '../public/youpi-sms-gateway.apk'),
+          path.resolve(__dirname, '../../payment-api/public/youpi-sms-gateway.apk'),
+          path.resolve(__dirname, '../../android-observer-app/youpi-sms-gateway.apk')
+        ];
+        let apkPath = null;
+        for (const p of apkCandidates) {
+          if (fs.existsSync(p)) {
+            apkPath = p;
+            break;
+          }
+        }
+        if (apkPath) {
+          const stat = fs.statSync(apkPath);
+          res.writeHead(200, {
+            'Content-Type': 'application/vnd.android.package-archive',
+            'Content-Disposition': 'attachment; filename="youpi-sms-gateway.apk"',
+            'Content-Length': stat.size,
+            'Access-Control-Allow-Origin': '*'
+          });
+          const stream = fs.createReadStream(apkPath);
+          stream.pipe(res);
+          return;
+        }
       }
 
       // Dashboard View: GET / or GET /admin

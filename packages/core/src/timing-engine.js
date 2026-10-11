@@ -90,6 +90,18 @@ export class TimingEngine {
   }
 
   /**
+   * Cancel active timer for session if running.
+   * @param {string} sessionId
+   */
+  cancelActiveTimer(sessionId) {
+    const activeTimer = this.activeTimers.get(sessionId);
+    if (activeTimer) {
+      clearTimeout(activeTimer);
+      this.activeTimers.delete(sessionId);
+    }
+  }
+
+  /**
    * Customer clicked "PAYMENT DONE — CHECK MY PAYMENT".
    * 1. Cancels Timer 1 (5-minute timer).
    * 2. Starts Timer 2 (30-second processing timer).

@@ -4,10 +4,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PaymentStatus } from '@youpi/common';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const rootDir = path.resolve(__dirname, '../../..');
+
 // In production, reliably ensure environment variables from .env are loaded if not already provided
 if (!process.env.BASE_CHECKOUT_URL && typeof process.loadEnvFile === 'function') {
   try {
-    const rootEnv = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.env');
+    const rootEnv = path.resolve(rootDir, '.env');
     if (fs.existsSync(rootEnv)) {
       process.loadEnvFile(rootEnv);
     }
@@ -15,6 +19,7 @@ if (!process.env.BASE_CHECKOUT_URL && typeof process.loadEnvFile === 'function')
 }
 import {
   getDatabase,
+  ensureDatabaseInitialized,
   runMigrations,
   MerchantRepository,
   ReceivingAccountRepository,
@@ -23,14 +28,16 @@ import {
   PaymentSessionRepository,
   ObservationRepository,
   SupportTicketRepository,
-  AuditLogRepository
+  AuditLogRepository,
+  DeviceRepository
 } from '@youpi/db';
 import {
   QueueEngine,
   TimingEngine,
   AttributionEngine,
   RecoveryEngine,
-  WebhookEngine
+  WebhookEngine,
+  PaymentVerificationPipeline
 } from '@youpi/core';
 import { HttpServer } from './server.js';
 import { registerPaymentRoutes } from './routes/payments.routes.js';
@@ -38,10 +45,20 @@ import { registerCheckoutRoutes } from './routes/checkout.routes.js';
 import { registerPollerRoutes } from './routes/pollers.routes.js';
 import { registerAdminRoutes } from './routes/admin.routes.js';
 import { registerCustomerRoutes } from './routes/customer.routes.js';
+import { registerDeviceRoutes } from './routes/device.routes.js';
+import { getWhatsAppBerryService, WhatsAppBerryService } from './services/whatsapp-berry.service.js';
 
-export function createPaymentApp(customDb = null) {
+export function createPaymentApp(customDb = null, options = {}) {
   const db = customDb || getDatabase();
+  ensureDatabaseInitialized(db);
   const { defaultMerchant } = runMigrations(db);
+  const isCustom = !!customDb;
+  const whatsappBerryService = options.whatsappBerryService || (isCustom ? new WhatsAppBerryService({
+    sessionId: 'test_berry_session',
+    sessionPath: path.resolve(rootDir, 'data/test_berry_auth'),
+    databasePath: path.resolve(rootDir, 'data/test_berry_store.db'),
+    metaFile: path.resolve(rootDir, 'data/test_whatsapp_session.json')
+  }) : getWhatsAppBerryService());
 
   const merchantRepo = new MerchantRepository(db);
   const accountRepo = new ReceivingAccountRepository(db);
@@ -51,6 +68,7 @@ export function createPaymentApp(customDb = null) {
   const obsRepo = new ObservationRepository(db);
   const ticketRepo = new SupportTicketRepository(db);
   const auditRepo = new AuditLogRepository(db);
+  const deviceRepo = new DeviceRepository(db);
 
   const eventEmitter = new EventEmitter();
 
@@ -94,7 +112,20 @@ export function createPaymentApp(customDb = null) {
   });
 
   const server = new HttpServer();
-  const checkoutBaseUrl = process.env.BASE_CHECKOUT_URL || 'http://localhost:7000';
+  let checkoutBaseUrl = process.env.BASE_CHECKOUT_URL || 'http://localhost:7000';
+  try {
+    const rootEnv = path.resolve(__dirname, '../../../.env');
+    if (fs.existsSync(rootEnv)) {
+      const raw = fs.readFileSync(rootEnv, 'utf8');
+      for (const line of raw.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('BASE_CHECKOUT_URL=')) {
+          const val = trimmed.split('=')[1]?.trim();
+          if (val) checkoutBaseUrl = val.replace(/^["']|["']$/g, '');
+        }
+      }
+    }
+  } catch {}
 
   // BULLETPROOF QUEUE PROMOTION HANDLER
   function handleSlotFreedAndPromote(receivingAccountId) {
@@ -120,9 +151,24 @@ export function createPaymentApp(customDb = null) {
   eventEmitter.on('PAYMENT.SUCCESS', (data) => {
     const session = sessionRepo.findById(data.paymentId);
     if (session) {
+      server.broadcastSse(session.id, 'status_change', {
+        status: PaymentStatus.SUCCESS,
+        verificationLevel: data.verificationLevel || session.verificationLevel || 1,
+        verificationTag: data.verificationTag || session.verificationTag,
+        sources: data.sources || session.verificationSources
+      });
       webhookEngine.dispatch('SUCCESS', session).catch(() => {});
       handleSlotFreedAndPromote(session.receivingAccountId);
     }
+  });
+
+  eventEmitter.on('PAYMENT.LEVEL1_VERIFIED', (data) => {
+    server.broadcastSse(data.paymentId, 'status_change', {
+      status: 'VERIFYING',
+      verificationLevel: 1,
+      verificationTag: data.verificationTag,
+      message: 'Payment detected! Verifying secondary channel...'
+    });
   });
 
   eventEmitter.on('PAYMENT.FAILED', (data) => {
@@ -136,6 +182,9 @@ export function createPaymentApp(customDb = null) {
   eventEmitter.on('PAYMENT.EXPIRED', (data) => {
     const session = sessionRepo.findById(data.paymentId);
     if (session) {
+      server.broadcastSse(session.id, 'status_change', {
+        status: PaymentStatus.EXPIRED
+      });
       webhookEngine.dispatch('EXPIRED', session).catch(() => {});
       handleSlotFreedAndPromote(session.receivingAccountId);
     }
@@ -144,8 +193,36 @@ export function createPaymentApp(customDb = null) {
   eventEmitter.on('PAYMENT.CANCELLED', (data) => {
     const session = sessionRepo.findById(data.paymentId);
     if (session) {
+      server.broadcastSse(session.id, 'status_change', {
+        status: PaymentStatus.CANCELLED
+      });
       webhookEngine.dispatch('CANCELLED', session).catch(() => {});
       handleSlotFreedAndPromote(session.receivingAccountId);
+    }
+  });
+
+  eventEmitter.on('PAYMENT.FRAUD_BLOCKED', (data) => {
+    if (data.sessionId) {
+      server.broadcastSse(data.sessionId, 'status_change', {
+        status: 'BLOCKED',
+        isBanned: true,
+        fraudDetected: true,
+        orderId: data.orderId,
+        reason: data.reason || 'FRAUDULENT_PAYMENT_INJECTION',
+        blockedNotice: {
+          title: 'FRAUDULENT ACTIVITY DETECTED',
+          subtitle: 'Payment Session Terminated & Account Suspended',
+          message: 'Our automated verification engine detected fraudulent payment activity associated with this account. Access has been immediately suspended while our security operations team investigates the issue.',
+          investigating: true
+        }
+      });
+      server.broadcastSse(data.sessionId, 'account_blocked', {
+        status: 'BLOCKED',
+        isBanned: true,
+        fraudDetected: true,
+        orderId: data.orderId,
+        reason: data.reason || 'FRAUDULENT_PAYMENT_INJECTION'
+      });
     }
   });
 
@@ -259,17 +336,78 @@ export function createPaymentApp(customDb = null) {
 
   if (queueSyncDaemon.unref) queueSyncDaemon.unref();
 
+  // Continuous 1-Second Aggressive Polling Daemon across SMS Gateway & Gmail Observers
+  const aggressivePollerDaemon = setInterval(async () => {
+    try {
+      // Find all active/processing sessions currently waiting for bank confirmation
+      const activeSessions = db.query(`
+        SELECT id, receiving_account_id, amount_paise, status
+        FROM payment_sessions
+        WHERE status IN ('ACTIVE', 'PROCESSING') AND method = 'UPI'
+      `);
+
+      if (activeSessions.length === 0) return;
+
+      // 1. Poll SMS Observer
+      try {
+        const smsPort = Number(process.env.SMS_OBSERVER_PORT || 6002);
+        fetch(`http://localhost:${smsPort}/api/sweep`, { method: 'POST', signal: AbortSignal.timeout(800) }).catch(() => {});
+      } catch {}
+
+      // 2. Poll Gmail Observer
+      try {
+        const gmailPort = Number(process.env.GMAIL_OBSERVER_PORT || 6003);
+        fetch(`http://localhost:${gmailPort}/api/sweep`, { method: 'POST', signal: AbortSignal.timeout(800) }).catch(() => {});
+      } catch {}
+
+      // 3. Sweep any pending unattributed observations in DB matching active sessions
+      for (const session of activeSessions) {
+        try {
+          const unattributed = obsRepo.findUnattributed(session.receiving_account_id);
+          for (const obs of unattributed) {
+            attributionEngine.processObservation({
+              source: obs.source,
+              receivingAccountId: obs.receivingAccountId,
+              amountPaise: obs.amountPaise,
+              observedAt: obs.observedAt,
+              bankReferenceNumber: obs.bankReferenceNumber,
+              senderVpa: obs.senderVpa,
+              rawPayload: obs.rawPayload,
+              fingerprintHash: obs.fingerprintHash
+            });
+          }
+        } catch {}
+      }
+    } catch {}
+  }, 1000);
+
+  if (aggressivePollerDaemon.unref) aggressivePollerDaemon.unref();
+
   // Execute crash recovery on boot
   const recoveryStats = recoveryEngine.recover();
 
-  // Health check route
-  server.get('/health', (req, res) => {
+  // Health check routes
+  const healthHandler = (req, res) => {
     HttpServer.json(res, 200, {
       status: 'UP',
       service: 'payment-api',
       timestamp: new Date().toISOString(),
       recoveryStats
     });
+  };
+  server.get('/health', healthHandler);
+  server.get('/api/v1/health', healthHandler);
+
+  const pipeline = new PaymentVerificationPipeline({
+    db,
+    sessionRepo,
+    obsRepo,
+    customerRepo,
+    attributionEngine,
+    auditRepo,
+    merchantRepo,
+    server,
+    eventEmitter
   });
 
   const context = {
@@ -279,16 +417,20 @@ export function createPaymentApp(customDb = null) {
     customerRepo,
     customerSessionRepo,
     sessionRepo,
+    deviceRepo,
     obsRepo,
     ticketRepo,
     auditRepo,
     queueEngine,
     timingEngine,
     attributionEngine,
+    pipeline,
     recoveryEngine,
     eventEmitter,
     defaultMerchant,
-    checkoutBaseUrl
+    checkoutBaseUrl,
+    whatsappBerryService,
+    webhookEngine
   };
 
   registerPaymentRoutes(server, context);
@@ -296,14 +438,19 @@ export function createPaymentApp(customDb = null) {
   registerPollerRoutes(server, context);
   registerAdminRoutes(server, context);
   registerCustomerRoutes(server, context);
+  registerDeviceRoutes(server, context);
 
   function destroy() {
     clearInterval(queueSyncDaemon);
+    clearInterval(aggressivePollerDaemon);
     for (const timer of activeSweepTimers) {
       clearInterval(timer);
     }
     activeSweepTimers.clear();
     timingEngine.destroy();
+    if (typeof attributionEngine.destroy === 'function') {
+      attributionEngine.destroy();
+    }
   }
 
   return {

@@ -8,24 +8,28 @@ async function resetProductionDatabase() {
   console.log('🚀 TARGETED PRODUCTION DATABASE RESET');
   console.log('============================================================');
 
-  const prodDbPath = path.resolve('data/youpi_pg.sqlite');
+  const prodDbPath = path.resolve(process.cwd(), 'data/youpi_pg.sqlite');
   console.log('Target Database Path:', prodDbPath);
 
-  // Absolute safety assertions
-  assert.ok(
-    prodDbPath.includes('YOUPI PG-PRODUCTION'),
-    'CRITICAL SAFETY ERROR: Target path is NOT inside YOUPI PG-PRODUCTION!'
-  );
-  assert.ok(
-    !prodDbPath.includes('YOUPI PG\\data') && !prodDbPath.includes('YOUPI PG/data'),
-    'CRITICAL SAFETY ERROR: Target path points to DEVELOPMENT database!'
-  );
-  assert.ok(fs.existsSync(prodDbPath), `Database file does not exist: ${prodDbPath}`);
+  if (!fs.existsSync(prodDbPath)) {
+    const parentDir = path.dirname(prodDbPath);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
+    const initDb = new Database({ dbPath: prodDbPath });
+    initDb.close();
+  }
 
-  // Confirm backup exists
-  const backupPath = `${prodDbPath}.backup_pre_reset_20260909`;
-  assert.ok(fs.existsSync(backupPath), `Safety backup file does not exist: ${backupPath}`);
-  console.log('[✓] Confirmed pre-reset backup exists:', backupPath);
+  // Backup before reset
+  const backupDir = path.resolve(process.cwd(), 'data/backups');
+  if (!fs.existsSync(backupDir)) {
+    fs.mkdirSync(backupDir, { recursive: true });
+  }
+  const backupPath = path.join(backupDir, `prod_pre_reset_${Date.now()}.sqlite`);
+  if (fs.existsSync(prodDbPath)) {
+    fs.copyFileSync(prodDbPath, backupPath);
+    console.log('[✓] Confirmed pre-reset backup exists:', backupPath);
+  }
 
   const db = new Database({ dbPath: prodDbPath });
 

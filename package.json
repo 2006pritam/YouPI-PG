@@ -11,11 +11,15 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "node scripts/clean.js",
-    "start": "node scripts/dev.js",
-    "start:prod": "node --env-file=.env scripts/dev.js",
-    "start:prod:api": "node --env-file=.env apps/payment-api/src/index.js",
+    "db:setup": "node scripts/init-db.cjs",
+    "sync:package": "node scripts/sync-package.cjs",
+    "start": "node scripts/start.js",
+    "start:prod": "node scripts/start.js",
+    "start:prod:api": "node apps/payment-api/src/index.js",
     "dev": "node scripts/dev.js",
-    "test": "node --test packages/*/dist/**/*.test.js apps/*/dist/**/*.test.js",
+    "test": "node scripts/test-all.js",
+    "test:all": "node scripts/test-all.js",
+    "test:acceptance": "node --test scripts/production-infrastructure.test.js",
     "typecheck": "tsc -b --noEmit"
   },
   "devDependencies": {

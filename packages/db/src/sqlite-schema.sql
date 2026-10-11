@@ -31,13 +31,16 @@ CREATE TABLE IF NOT EXISTS payment_receiving_accounts (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_single_active_vpa_per_merchant ON payment_receiving_accounts (merchant_id) WHERE is_active = 1;
 
--- 3. Customers Table (Gateway-owned Customer Identity)
+-- 3. Customers Table (Gateway-owned Customer Identity with WhatsApp Berry OTP)
 CREATE TABLE IF NOT EXISTS customers (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
     mobile_number TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
+    password_hash TEXT,
+    otp_code TEXT,
+    otp_expires_at TEXT,
+    is_phone_verified INTEGER DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'ACTIVE',
     last_login_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -83,6 +86,7 @@ CREATE TABLE IF NOT EXISTS payment_sessions (
     return_url TEXT,
     attributed_observation_id TEXT,
     idempotency_key TEXT,
+    device_id TEXT REFERENCES devices(id),
     verification_level INTEGER DEFAULT 0,
     verification_sources TEXT DEFAULT '[]',
     verification_tag TEXT DEFAULT 'UNVERIFIED',
@@ -177,3 +181,53 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     ip_address TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- 10. Security Events Table (Forensic evidence for fraud, automatic and manual bans)
+CREATE TABLE IF NOT EXISTS security_events (
+    id TEXT PRIMARY KEY,
+    merchant_id TEXT,
+    customer_id TEXT,
+    payment_session_id TEXT,
+    event_type TEXT NOT NULL,
+    source TEXT,
+    sender TEXT,
+    device_info TEXT,
+    raw_message TEXT NOT NULL,
+    normalized_message TEXT,
+    extracted_amount TEXT,
+    extracted_reference TEXT,
+    parser_results TEXT DEFAULT '{}',
+    verification_results TEXT DEFAULT '{}',
+    fraud_reason TEXT NOT NULL,
+    metadata TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_security_events_customer ON security_events (customer_id);
+CREATE INDEX IF NOT EXISTS idx_security_events_session ON security_events (payment_session_id);
+CREATE INDEX IF NOT EXISTS idx_security_events_type ON security_events (event_type);
+
+-- 11. Devices Table (Cryptographic Device Binding & Hardware Context Fingerprinting)
+CREATE TABLE IF NOT EXISTS devices (
+    id TEXT PRIMARY KEY,
+    customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
+    public_key TEXT NOT NULL,
+    fingerprint_hash TEXT NOT NULL,
+    user_agent TEXT,
+    platform TEXT,
+    browser TEXT,
+    timezone TEXT,
+    language TEXT,
+    screen_signature TEXT,
+    device_token TEXT UNIQUE,
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_devices_customer ON devices (customer_id);
+CREATE INDEX IF NOT EXISTS idx_devices_fingerprint ON devices (fingerprint_hash);
+CREATE INDEX IF NOT EXISTS idx_devices_token ON devices (device_token);
+CREATE INDEX IF NOT EXISTS idx_payment_sessions_device ON payment_sessions (device_id);
+
+

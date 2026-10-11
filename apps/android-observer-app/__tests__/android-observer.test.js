@@ -12,7 +12,7 @@ describe('Android Payment Observer Integration Tests', () => {
 
   before(async () => {
     testDb = new Database({ inMemory: true });
-    apiInstance = await startPaymentApi(6197, testDb);
+    apiInstance = await startPaymentApi(6217, testDb);
     driver = new AndroidObserverDriver({
       apiBaseUrl: `http://localhost:${apiInstance.port}`,
       deviceName: 'Pixel 8 Pro Tester',

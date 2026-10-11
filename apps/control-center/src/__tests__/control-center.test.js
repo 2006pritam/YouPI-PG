@@ -74,7 +74,7 @@ describe('Control Center Supervisor Integration Tests', () => {
     assert.ok(res.body.includes('Real-Time Aggregate Terminal Logs'));
   });
 
-  test('GET /api/services enumerates all 6 modular host services', async () => {
+  test('GET /api/services enumerates all modular host services', async () => {
     const res = await get('/api/services');
     assert.equal(res.status, 200);
     assert.ok(Array.isArray(res.body));
@@ -84,9 +84,9 @@ describe('Control Center Supervisor Integration Tests', () => {
     assert.ok(ids.includes('payment-api'));
     assert.ok(ids.includes('checkout-portal'));
     assert.ok(ids.includes('merchant-admin'));
-    assert.ok(ids.includes('payment-help'));
     assert.ok(ids.includes('gmail-observer'));
     assert.ok(ids.includes('sms-observer'));
+    assert.ok(ids.includes('coin-wallet-store'));
 
     for (const s of res.body) {
       assert.equal(s.status, 'STOPPED');

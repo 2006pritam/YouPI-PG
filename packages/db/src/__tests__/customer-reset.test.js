@@ -7,6 +7,15 @@ import { Database, runMigrations } from '../index.js';
 test('Production & Development Database Safe Customer Reset and Zero Residue Invariant', () => {
   // 1. PROD RESET & VERIFICATION
   const prodPath = path.resolve('data/youpi_pg.sqlite');
+  if (!fs.existsSync(prodPath)) {
+    const parentDir = path.dirname(prodPath);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
+    const initDb = new Database({ dbPath: prodPath });
+    runMigrations(initDb);
+    initDb.close();
+  }
   assert.ok(fs.existsSync(prodPath), `Production DB must exist at ${prodPath}`);
 
   const prodBackupDir = path.resolve('data/backups');
@@ -44,9 +53,9 @@ test('Production & Development Database Safe Customer Reset and Zero Residue Inv
   prodDb.close();
 
   // 2. DEV RESET & VERIFICATION
-  const devPath = 'D:/YOUPI PG/data/youpi_pg.sqlite';
+  const devPath = process.env.DEV_DB_PATH || path.resolve('data/youpi_pg_dev.sqlite');
   if (fs.existsSync(devPath)) {
-    const devBackupDir = 'D:/YOUPI PG/data/backups';
+    const devBackupDir = path.resolve('data/backups');
     if (!fs.existsSync(devBackupDir)) {
       fs.mkdirSync(devBackupDir, { recursive: true });
     }

@@ -50,18 +50,19 @@ async function executeCleanReset() {
   prodDb.close();
 
   // --- 2. DEVELOPMENT RESET ---
-  const devPath = 'D:/YOUPI PG/data/youpi_pg.sqlite';
+  const devPath = process.env.DEV_DB_PATH || path.resolve(process.cwd(), 'data/youpi_pg_dev.sqlite');
   console.log('\n[2] Processing Development Database:', devPath);
 
-  const devBackupDir = 'D:/YOUPI PG/data/backups';
-  if (!fs.existsSync(devBackupDir)) {
-    fs.mkdirSync(devBackupDir, { recursive: true });
-  }
-  const devBackupPath = path.join(devBackupDir, `dev_pre_auth_reset_${Date.now()}.sqlite`);
-  fs.copyFileSync(devPath, devBackupPath);
-  console.log('  [✓] Created dev backup at:', devBackupPath);
+  if (fs.existsSync(devPath)) {
+    const devBackupDir = path.resolve(process.cwd(), 'data/backups');
+    if (!fs.existsSync(devBackupDir)) {
+      fs.mkdirSync(devBackupDir, { recursive: true });
+    }
+    const devBackupPath = path.join(devBackupDir, `dev_pre_auth_reset_${Date.now()}.sqlite`);
+    fs.copyFileSync(devPath, devBackupPath);
+    console.log('  [✓] Created dev backup at:', devBackupPath);
 
-  const devDb = new Database({ dbPath: devPath });
+    const devDb = new Database({ dbPath: devPath });
   const devMerchantsBefore = devDb.query('SELECT count(*) as c FROM merchants')[0].c;
   const devAccountsBefore = devDb.query('SELECT count(*) as c FROM payment_receiving_accounts')[0].c;
   const devObsBefore = devDb.query('SELECT count(*) as c FROM payment_observations')[0].c;
@@ -90,7 +91,10 @@ async function executeCleanReset() {
   assert.equal(devObsAfter, devObsBefore, 'Dev observations must remain 100% intact');
 
   console.log(`  [✓] Dev verified: Customers=0, Sessions=0, Merchants=${devMerchantsAfter}, Observations=${devObsAfter}`);
-  devDb.close();
+    devDb.close();
+  } else {
+    console.log('  [i] Development database not present, skipping dev reset.');
+  }
 
   console.log('\n============================================================');
   console.log('🎉 BOTH DEV & PROD FINISHED CLEANLY WITH CUSTOMER COUNT = 0');

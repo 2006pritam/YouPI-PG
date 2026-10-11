@@ -3,8 +3,11 @@
   "version": "1.0.0",
   "description": "Shared protocols, types, currency utilities, and cryptographic helpers for YOUPI PG",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "types": "./src/index.d.ts",
   "scripts": {
     "build": "tsc",
     "test": "node --test dist/__tests__/**/*.test.js"

@@ -75,6 +75,7 @@ export class GoogleMessagesAutomator {
    */
   async autoEnsureConnection() {
     if (this.isEnsuring) return this.getStatus();
+    if (process.env.ENABLE_LEGACY_CHROME_OBSERVERS !== 'true') return this.getStatus();
     this.isEnsuring = true;
 
     try {
@@ -121,6 +122,14 @@ export class GoogleMessagesAutomator {
    * Opens the visible Google Messages Web pairing browser window on the host.
    */
   launchPairingWindow() {
+    if (process.env.ENABLE_LEGACY_CHROME_OBSERVERS !== 'true') {
+      return {
+        success: false,
+        launched: false,
+        reason: 'Legacy Chrome observer is disabled in production profile. Use Android APK.'
+      };
+    }
+
     this.mode = 'VISIBLE';
     this.browserProcess = BrowserLauncher.launch({
       url: this.targetUrl,
@@ -330,15 +339,18 @@ export class GoogleMessagesAutomator {
 
   getStatus() {
     let statusText = 'STANDBY';
-    if (this.isPaired) {
+    const isLive = Boolean(this.lastSeenAt && (Date.now() - new Date(this.lastSeenAt).getTime() < 300000));
+    if (this.isPaired && this.mode === 'BACKGROUND' && isLive) {
       statusText = 'CONNECTED';
-    } else if (this.mode === 'VISIBLE' || (this.lastSeenAt && (Date.now() - this.lastSeenAt.getTime() < 10000))) {
+    } else if (this.mode === 'VISIBLE' || (this.lastSeenAt && (Date.now() - new Date(this.lastSeenAt).getTime() < 10000))) {
       statusText = 'AWAITING_PAIRING';
+    } else {
+      statusText = 'STANDBY';
     }
 
     return {
       service: 'google-messages-web',
-      isPaired: this.isPaired,
+      isPaired: Boolean(this.isPaired),
       status: statusText,
       mode: this.mode,
       messagesObserved: this.messagesObserved,

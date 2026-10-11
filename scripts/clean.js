@@ -27,6 +27,30 @@ function cleanDir(dir) {
   }
 }
 
-console.log('Cleaning build artifacts across workspace...');
+console.log('Cleaning build artifacts and caches across workspace...');
 cleanDir(root);
+
+// Also clean Chrome browser session caches (preserves login sessions and cookies)
+const browserSessionsDir = path.join(root, 'data', 'browser-sessions');
+if (fs.existsSync(browserSessionsDir)) {
+  const sessions = fs.readdirSync(browserSessionsDir);
+  for (const session of sessions) {
+    const defaultDir = path.join(browserSessionsDir, session, 'Default');
+    if (fs.existsSync(defaultDir)) {
+      const cacheFolders = ['Cache', 'Code Cache', 'GPUCache', 'DawnGraphiteCache', 'DawnWebGPUCache', 'AutofillAiModelCache'];
+      for (const cf of cacheFolders) {
+        const p = path.join(defaultDir, cf);
+        if (fs.existsSync(p)) {
+          try {
+            fs.rmSync(p, { recursive: true, force: true });
+            console.log(`Cleared browser cache: ${p}`);
+          } catch (e) {
+            console.log(`Could not clear ${p}: ${e.message}`);
+          }
+        }
+      }
+    }
+  }
+}
+
 console.log('Clean complete.');
