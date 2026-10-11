@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { generateQrSvg } from '@youpi/core';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,30 +13,69 @@ let qrcodeLib = null;
 
 async function loadDependencies() {
   if (!BerryProtocolClass) {
-    try {
-      const mod = await import('berryprotocol');
-      BerryProtocolClass = mod.BerryProtocol || mod.default;
-    } catch {
+    const candidates = [
+      'berryprotocol',
+      'file:///D:/E-Commerce PKG/services/whatsapp-worker/node_modules/berryprotocol/dist/index.js',
+      'file:///D:/ECOM AND YOUPI PG INTEGRATION/E-Commerce PACKAGE/services/whatsapp-worker/node_modules/berryprotocol/dist/index.js',
+      'file:///D:/distribution/services/whatsapp-worker/node_modules/berryprotocol/dist/index.js'
+    ];
+    for (const p of candidates) {
       try {
-        const mod = await import('file:///D:/distribution/services/whatsapp-worker/node_modules/berryprotocol/dist/index.js');
+        const mod = await import(p);
         BerryProtocolClass = mod.BerryProtocol || mod.default;
-      } catch (e) {
-        // Will operate in pairing QR fallback mode if berryprotocol module cannot be found
-      }
+        if (BerryProtocolClass) {
+          console.log(`[WhatsAppBerryService] Loaded BerryProtocol engine from: ${p}`);
+          break;
+        }
+      } catch {}
     }
   }
   if (!qrcodeLib) {
-    try {
-      const qrMod = await import('qrcode');
-      qrcodeLib = qrMod.default || qrMod;
-    } catch {
+    const qrCandidates = [
+      'qrcode',
+      'file:///D:/E-Commerce PKG/services/whatsapp-worker/node_modules/qrcode/lib/index.js',
+      'file:///D:/ECOM AND YOUPI PG INTEGRATION/E-Commerce PACKAGE/services/whatsapp-worker/node_modules/qrcode/lib/index.js',
+      'file:///D:/distribution/services/whatsapp-worker/node_modules/qrcode/lib/index.js'
+    ];
+    for (const p of qrCandidates) {
       try {
-        const qrMod = await import('file:///D:/distribution/services/whatsapp-worker/node_modules/qrcode/lib/index.js');
+        const qrMod = await import(p);
         qrcodeLib = qrMod.default || qrMod;
-      } catch (e) {}
+        if (qrcodeLib) break;
+      } catch {}
     }
   }
   return { BerryProtocol: BerryProtocolClass, qrcode: qrcodeLib };
+}
+
+/**
+ * Ensures any pairing string or QR data is converted to an authentic, renderable Data URI.
+ * Uses qrcode library if available, with pure-JS SVG Base64 fallback from @youpi/core.
+ */
+export async function formatQrDataUrl(rawText, qrcodeModule = null) {
+  if (!rawText) return null;
+  if (typeof rawText === 'string' && rawText.startsWith('data:image/')) {
+    return rawText;
+  }
+  if (qrcodeModule && typeof qrcodeModule.toDataURL === 'function') {
+    try {
+      const dataUrl = await qrcodeModule.toDataURL(rawText, {
+        width: 320,
+        margin: 2,
+        color: { dark: '#0f172a', light: '#ffffff' }
+      });
+      if (dataUrl && dataUrl.startsWith('data:image/')) {
+        return dataUrl;
+      }
+    } catch {}
+  }
+  try {
+    const svg = generateQrSvg(rawText, 320, 'M');
+    return 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64');
+  } catch (err) {
+    console.error('[WhatsAppBerryService] Failed to generate QR SVG Data URL:', err.message);
+    return null;
+  }
 }
 
 export class WhatsAppBerryService extends EventEmitter {
@@ -186,7 +226,7 @@ export class WhatsAppBerryService extends EventEmitter {
           if (!this.qrCode) {
             const { qrcode } = await loadDependencies();
             const fallbackStr = `berry-pair:${Date.now()}`;
-            const dataUrl = qrcode?.toDataURL ? await qrcode.toDataURL(fallbackStr, { margin: 1, scale: 6 }) : null;
+            const dataUrl = await formatQrDataUrl(fallbackStr, qrcode);
             this.qrCode = { raw: fallbackStr, dataUrl };
             this.status = 'QR_READY';
           }
@@ -221,16 +261,7 @@ export class WhatsAppBerryService extends EventEmitter {
         this.status = 'QR_READY';
         this.phoneNumber = null;
         const simRaw = `BERRY_PAIR_${Date.now()}`;
-        let simDataUrl = simRaw;
-        if (qrcode) {
-          try {
-            simDataUrl = await qrcode.toDataURL(simRaw, {
-              width: 320,
-              margin: 2,
-              color: { dark: '#0f172a', light: '#ffffff' }
-            });
-          } catch {}
-        }
+        const simDataUrl = await formatQrDataUrl(simRaw, qrcode);
         this.qrCode = { raw: simRaw, dataUrl: simDataUrl };
         console.log('[WhatsAppBerryService] Running in pairing QR mode (berryprotocol standalone). QR ready.');
         this.emit('qr', this.qrCode);
@@ -275,17 +306,8 @@ export class WhatsAppBerryService extends EventEmitter {
       this.status = 'QR_READY';
       this.phoneNumber = null;
       const fallbackRaw = `BERRY_PAIR_${Date.now()}`;
-      let fallbackDataUrl = fallbackRaw;
       const { qrcode } = await loadDependencies();
-      if (qrcode) {
-        try {
-          fallbackDataUrl = await qrcode.toDataURL(fallbackRaw, {
-            width: 320,
-            margin: 2,
-            color: { dark: '#0f172a', light: '#ffffff' }
-          });
-        } catch {}
-      }
+      const fallbackDataUrl = await formatQrDataUrl(fallbackRaw, qrcode);
       this.qrCode = { raw: fallbackRaw, dataUrl: fallbackDataUrl };
       this.emit('qr', this.qrCode);
       this.emit('status', this.status);
@@ -307,18 +329,11 @@ export class WhatsAppBerryService extends EventEmitter {
       }
 
       try {
-        let dataUrl = null;
-        if (qrcodeLib) {
-          dataUrl = await qrcodeLib.toDataURL(value, {
-            width: 320,
-            margin: 2,
-            color: { dark: '#0f172a', light: '#ffffff' }
-          });
-        }
+        const dataUrl = await formatQrDataUrl(value, qrcodeLib);
 
         this.qrCode = {
           raw: value,
-          dataUrl: dataUrl || value
+          dataUrl
         };
         this.status = 'QR_READY';
         this.phoneNumber = null;

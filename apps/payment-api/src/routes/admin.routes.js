@@ -3,6 +3,7 @@ import { HttpServer } from '../server.js';
 import { PaymentStatus, PaymentMethod, SellingMode, AuditActorType, isValidVpa, toRupeesString, deriveCloudflareRoutes, resolveRuntimeUrls } from '@youpi/common';
 import { PaymentVerificationPipeline } from '@youpi/core';
 import { globalTunnelManager } from '../services/tunnel-manager.js';
+import { formatQrDataUrl } from '../services/whatsapp-berry.service.js';
 
 function resolveSellingModeAndMethods(body, currentBranding = {}) {
   const inputBranding = body.branding || {};
@@ -1110,6 +1111,13 @@ export function registerAdminRoutes(server, ctx) {
 
     const info = berry.getClientInfo();
     const qr = berry.getQrCode();
+    let qrPayload = qr?.dataUrl || (typeof qr === 'string' && qr.startsWith('data:image/') ? qr : null);
+    if (!qrPayload && (qr?.raw || typeof qr === 'string')) {
+      const rawText = qr?.raw || (typeof qr === 'string' ? qr : null);
+      if (rawText) {
+        qrPayload = await formatQrDataUrl(rawText);
+      }
+    }
 
     HttpServer.json(res, 200, {
       success: true,
@@ -1118,7 +1126,7 @@ export function registerAdminRoutes(server, ctx) {
       platform: info.platform,
       sessionId: info.sessionId,
       isConnected: info.isConnected,
-      qrCode: qr?.dataUrl || qr?.raw || (typeof qr === 'string' ? qr : null),
+      qrCode: qrPayload || qr?.dataUrl || qr?.raw || (typeof qr === 'string' ? qr : null),
       pairingCode: info.pairingCode || null,
       pairingPhone: info.pairingPhone || null
     });
@@ -1133,10 +1141,18 @@ export function registerAdminRoutes(server, ctx) {
     }
 
     const qr = berry.getQrCode();
+    let qrPayload = qr?.dataUrl || (typeof qr === 'string' && qr.startsWith('data:image/') ? qr : null);
+    if (!qrPayload && (qr?.raw || typeof qr === 'string')) {
+      const rawText = qr?.raw || (typeof qr === 'string' ? qr : null);
+      if (rawText) {
+        qrPayload = await formatQrDataUrl(rawText);
+      }
+    }
+
     HttpServer.json(res, 200, {
       success: true,
       status: berry.getStatus(),
-      qrCode: qr?.dataUrl || qr?.raw || (typeof qr === 'string' ? qr : null),
+      qrCode: qrPayload || qr?.dataUrl || qr?.raw || (typeof qr === 'string' ? qr : null),
       available: Boolean(qr)
     });
   });
@@ -1163,11 +1179,18 @@ export function registerAdminRoutes(server, ctx) {
         qr = berry.getQrCode();
       }
 
-      const qrPayload = qr?.dataUrl || qr?.raw || (typeof qr === 'string' ? qr : null);
+      let qrPayload = qr?.dataUrl || (typeof qr === 'string' && qr.startsWith('data:image/') ? qr : null);
+      if (!qrPayload && (qr?.raw || typeof qr === 'string')) {
+        const rawText = qr?.raw || (typeof qr === 'string' ? qr : null);
+        if (rawText) {
+          qrPayload = await formatQrDataUrl(rawText);
+        }
+      }
+
       HttpServer.json(res, 200, {
         success: true,
         status: berry.getStatus(),
-        qrCode: qrPayload
+        qrCode: qrPayload || qr?.dataUrl || qr?.raw || (typeof qr === 'string' ? qr : null)
       });
     } catch (err) {
       HttpServer.json(res, 500, { error: err.message });

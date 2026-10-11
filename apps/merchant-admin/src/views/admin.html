@@ -2986,7 +2986,7 @@
                 style="width:200px; height:200px; display:flex; align-items:center; justify-content:center; color:#0f172a; font-size:0.85rem;">
                 Click "Connect / Refresh QR" to pair device
               </div>
-              <img id="waQrImg" src="" alt="WhatsApp Pairing QR" style="width:200px; height:200px; display:none;" />
+              <img id="waQrImg" src="" alt="WhatsApp Pairing QR" style="width:200px; height:200px; display:none;" onerror="this.style.display='none'; if(document.getElementById('waQrPlaceholder')){ document.getElementById('waQrPlaceholder').style.display='flex'; document.getElementById('waQrPlaceholder').innerText='QR preview unavailable. Click Refresh QR.'; }" />
             </div>
 
             <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
@@ -5290,9 +5290,22 @@
           if (btnConnect) btnConnect.innerText = '🔄 Refresh QR Code';
 
           if (data.qrCode && qrImg && qrPlaceholder) {
-            qrImg.src = data.qrCode;
-            qrImg.style.display = 'block';
-            qrPlaceholder.style.display = 'none';
+            let qrSrc = data.qrCode;
+            if (typeof qrSrc === 'string' && !qrSrc.startsWith('data:image/') && !qrSrc.startsWith('http')) {
+              if (qrSrc.startsWith('<svg')) {
+                qrSrc = 'data:image/svg+xml;utf8,' + encodeURIComponent(qrSrc);
+              }
+            }
+
+            if (qrSrc && (qrSrc.startsWith('data:image/') || qrSrc.startsWith('http'))) {
+              qrImg.src = qrSrc;
+              qrImg.style.display = 'block';
+              qrPlaceholder.style.display = 'none';
+            } else {
+              qrImg.style.display = 'none';
+              qrPlaceholder.style.display = 'flex';
+              qrPlaceholder.innerText = 'Preparing pairing QR... Click "Refresh QR Code"';
+            }
           }
         } else {
           if (badge) { badge.className = 'badge badge-danger'; badge.innerText = 'DISCONNECTED'; }
