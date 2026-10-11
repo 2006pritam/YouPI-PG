@@ -57,9 +57,14 @@ export async function formatQrDataUrl(rawText, qrcodeModule = null) {
   if (typeof rawText === 'string' && rawText.startsWith('data:image/')) {
     return rawText;
   }
-  if (qrcodeModule && typeof qrcodeModule.toDataURL === 'function') {
+  let qrEngine = qrcodeModule || qrcodeLib;
+  if (!qrEngine) {
+    const deps = await loadDependencies();
+    qrEngine = deps.qrcode;
+  }
+  if (qrEngine && typeof qrEngine.toDataURL === 'function') {
     try {
-      const dataUrl = await qrcodeModule.toDataURL(rawText, {
+      const dataUrl = await qrEngine.toDataURL(rawText, {
         width: 320,
         margin: 2,
         color: { dark: '#0f172a', light: '#ffffff' }
@@ -67,13 +72,15 @@ export async function formatQrDataUrl(rawText, qrcodeModule = null) {
       if (dataUrl && dataUrl.startsWith('data:image/')) {
         return dataUrl;
       }
-    } catch {}
+    } catch (e) {
+      console.warn('[WhatsAppBerryService] qrcode.toDataURL notice:', e.message);
+    }
   }
   try {
     const svg = generateQrSvg(rawText, 320, 'M');
     return 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64');
   } catch (err) {
-    console.error('[WhatsAppBerryService] Failed to generate QR SVG Data URL:', err.message);
+    console.error('[WhatsAppBerryService] Failed to generate QR Data URL:', err.message);
     return null;
   }
 }
@@ -405,20 +412,24 @@ export class WhatsAppBerryService extends EventEmitter {
         this.emit('disconnected', { reason: 'logged_out' });
         this.emit('status', this.status);
       } else {
-        // Transient disconnect (network flicker, WhatsApp server restart/ping timeout)
-        // Keep credentials and session ID intact!
+        // While waiting for user to scan QR code, DO NOT wipe QR_READY status or destroy active QR code!
+        if (this.status === 'QR_READY' && this.qrCode && !this.phoneNumber) {
+          console.log('[WhatsAppBerryService] Handshake cycle during QR pairing wait. Preserving active QR on screen.');
+          return;
+        }
+
         this.status = 'DISCONNECTED';
         this.emit('disconnected', { reason, statusCode });
         this.emit('status', this.status);
 
-        if (this.shouldKeepPairingAlive !== false) {
+        if (this.shouldKeepPairingAlive !== false && this.phoneNumber) {
           clearTimeout(this.reconnectTimer);
           this.reconnectTimer = setTimeout(() => {
             console.log(`[WhatsAppBerryService] Auto-reconnecting transient WhatsApp session (${this.phoneNumber || this.sessionId})...`);
             this.initialize().catch(err => {
               console.warn(`[WhatsAppBerryService] Auto-reconnect retry notice: ${err.message}`);
             });
-          }, 2000);
+          }, 3000);
         }
       }
     });
@@ -503,7 +514,7 @@ export class WhatsAppBerryService extends EventEmitter {
     this.emit('status', this.status);
   }
 
-  async reconnect(options = { cleanSession: false }) {
+  async reconnect(options = { cleanSession: true }) {
     await this.disconnect(options);
     await this.initialize();
   }
