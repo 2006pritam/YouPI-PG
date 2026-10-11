@@ -28,6 +28,7 @@
 <br/>
 
 <p align="center">
+  <a href="#-live-product-demos">Live Demos</a> •
   <a href="#-the-problem-vs-the-youpi-solution">Why YOUPI?</a> •
   <a href="#-architecture-at-a-glance">Architecture</a> •
   <a href="#-key-features--superpowers">Superpowers</a> •
@@ -43,6 +44,19 @@
 </div>
 
 <br/>
+
+## 🎬 Live Product Demos
+
+See **YOUPI PG V2** live in action across Desktop and Mobile checkout flows:
+
+| 🖥️ Desktop Modal Flow (`assets/Desktop.mp4`) | 📱 Mobile Drawer & App Switcher (`assets/Mobile.mp4`) |
+| :---: | :---: |
+| <video src="assets/Desktop.mp4" controls width="100%"></video><br/>▶️ **[Watch / Download Desktop Demo](assets/Desktop.mp4)** | <video src="assets/Mobile.mp4" controls width="80%"></video><br/>▶️ **[Watch / Download Mobile Demo](assets/Mobile.mp4)** |
+| • **Zero-JS One-Script Trigger**: Auto-binds to `[data-youpi-pay]`<br/>• **WhatsApp Pre-Checkout OTP**: Real-time 6-digit phone verification<br/>• **Dynamic Vector SVG QR**: Pure vector QR code with dual timers<br/>• **Automated Observer Credit**: Instant credit via bank SMS/Gmail | • **Responsive Bottom Drawer**: Native app-feel mobile UI<br/>• **Direct UPI App Deep-Linking**: GPay, PhonePe, Paytm, CRED<br/>• **Real-Time Payment Polling**: Instant status reflection<br/>• **Counter Desk Modalities**: Configurable Cash & Card fallback |
+
+<br/>
+
+---
 
 ## 💡 Stop Paying 2–3% + 18% GST to Payment Aggregators
 
