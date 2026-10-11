@@ -1446,7 +1446,22 @@
                 </div>
               </div>
 
-
+              <!-- SECTION 4: TRUST GUARANTEES & NOTICES -->
+              <div class="settings-group-box">
+                <div class="group-box-title">
+                  🛡️ 4. Guarantees &amp; Conversion Notices
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+                  <div>
+                    <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.35rem;">Sidebar Trust Notice</label>
+                    <input id="settingSidebarNotice" type="text" placeholder="e.g. Fast & Secure 256-Bit Encrypted Payments" style="width:100%;" oninput="updateLiveWhiteLabelPreview()" />
+                  </div>
+                  <div>
+                    <label style="display:block; font-size:0.82rem; font-weight:700; margin-bottom:0.35rem;">Footer Guarantee Text</label>
+                    <input id="settingFooterGuarantee" type="text" placeholder="e.g. 100% Payment Protection Guaranteed" style="width:100%;" oninput="updateLiveWhiteLabelPreview()" />
+                  </div>
+                </div>
+              </div>
 
               <!-- SECTION 5: SUPPORT & LEGAL POLICIES -->
               <div class="settings-group-box">
@@ -1717,7 +1732,7 @@
 
           <!-- Mode Segmented Switch -->
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.5rem;">
-            <div id="cardModeOnline" onclick="setSellingMode('ONLINE')" class="selling-mode-card mode-selected-online">
+            <div id="cardModeOnline" onclick="setSellingMode('ONLINE', true)" class="selling-mode-card mode-selected-online">
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
                 <strong style="font-size:1rem; color:var(--text-heading);">🌐 Online Selling Mode</strong>
                 <span class="badge badge-primary" id="badgeOnlineActive">ACTIVE</span>
@@ -1728,7 +1743,7 @@
               </p>
             </div>
 
-            <div id="cardModeOffline" onclick="setSellingMode('OFFLINE')" class="selling-mode-card">
+            <div id="cardModeOffline" onclick="setSellingMode('OFFLINE', true)" class="selling-mode-card">
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
                 <strong style="font-size:1rem; color:var(--text-heading);">🏬 Offline Selling Mode</strong>
                 <span class="badge badge-warning" id="badgeOfflineActive" style="display:none;">ACTIVE</span>
@@ -3366,6 +3381,7 @@
     let currentDomainTld = '';
     let currentSellingMode = 'ONLINE';
     let currentMerchantId = '00000000-0000-0000-0000-000000000001';
+    let currentMerchantBranding = {};
     let settingsLoaded = false;
     let pollingTimer = null;
     let waPollingTimer = null;
@@ -3805,7 +3821,7 @@
     }
 
     // --- SELLING MODE & PAYMENT MODALITIES ---
-    function setSellingMode(mode) {
+    function setSellingMode(mode, save = false) {
       currentSellingMode = (mode === 'OFFLINE') ? 'OFFLINE' : 'ONLINE';
       const cardOnline = document.getElementById('cardModeOnline');
       const cardOffline = document.getElementById('cardModeOffline');
@@ -3845,6 +3861,10 @@
         if (modeBadge) { modeBadge.textContent = 'OFFLINE SELLING MODE'; modeBadge.className = 'badge badge-warning'; }
         if (codCard) codCard.style.display = 'none';
         if (offlineCard) offlineCard.style.display = 'block';
+      }
+
+      if (save) {
+        saveMerchantBrandingAndToggles();
       }
     }
 
@@ -4253,77 +4273,93 @@
     async function fetchGatewaySettings() {
       try {
         const upiRes = await fetch(`${API_BASE}/api/v1/admin/upi-settings`);
-        const upiData = await upiRes.json();
-        currentUpiAccounts = upiData.accounts || [];
-        renderUpiAccountsTable(currentUpiAccounts);
-        renderActiveVpaCallout(upiData);
+        if (upiRes.ok) {
+          const upiData = await upiRes.json();
+          currentUpiAccounts = upiData.accounts || [];
+          renderUpiAccountsTable(currentUpiAccounts);
+          renderActiveVpaCallout(upiData);
+        }
 
         const mRes = await fetch(`${API_BASE}/api/v1/admin/merchant-settings`);
-        const mData = await mRes.json();
-        currentMerchantId = mData.merchantId || currentMerchantId || '00000000-0000-0000-0000-000000000001';
+        if (mRes.ok) {
+          const mData = await mRes.json();
+          currentMerchantId = mData.merchantId || currentMerchantId || '00000000-0000-0000-0000-000000000001';
 
-        document.getElementById('settingBusinessName').value = mData.businessName || '';
-        document.getElementById('settingWebhookUrl').value = mData.webhookUrl || '';
-        document.getElementById('settingWebhookSecret').value = mData.webhookSecret || '';
+          const branding = mData.branding || {};
+          currentMerchantBranding = branding;
 
-        const branding = mData.branding || {};
-        document.getElementById('settingAppName').value = branding.appName || '';
-        document.getElementById('settingLogoUrl').value = branding.logoUrl || '';
-        document.getElementById('settingSidebarNotice').value = branding.sidebarNotice || '';
-        document.getElementById('settingFooterGuarantee').value = branding.footerGuarantee || '';
-        document.getElementById('settingCounterInstructions').value = branding.counterInstructions || '';
-        document.getElementById('settingPrimaryColor').value = branding.primaryColor || '#0b63e5';
-        document.getElementById('settingColorPicker').value = branding.primaryColor || '#0b63e5';
+          const setVal = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.value = val ?? '';
+          };
+          const setCheck = (id, checked) => {
+            const el = document.getElementById(id);
+            if (el) el.checked = Boolean(checked);
+          };
 
-        if (document.getElementById('settingHeaderTheme')) document.getElementById('settingHeaderTheme').value = branding.headerTheme || 'gradient';
-        if (document.getElementById('settingTrustBadgeText')) document.getElementById('settingTrustBadgeText').value = branding.trustBadgeText || '';
-        if (document.getElementById('settingHideTrustBadge')) document.getElementById('settingHideTrustBadge').checked = Boolean(branding.hideTrustBadge);
-        if (document.getElementById('settingSubbannerText')) document.getElementById('settingSubbannerText').value = branding.subbannerText || '';
-        if (document.getElementById('settingHideSubbanner')) document.getElementById('settingHideSubbanner').checked = Boolean(branding.hideSubbanner);
-        if (document.getElementById('settingHideTimeSavingBanner')) document.getElementById('settingHideTimeSavingBanner').checked = Boolean(branding.hideTimeSavingBanner);
-        if (document.getElementById('settingHidePoweredBy')) document.getElementById('settingHidePoweredBy').checked = Boolean(branding.hidePoweredBy);
-        if (document.getElementById('settingCardCounterInstructions')) document.getElementById('settingCardCounterInstructions').value = branding.cardCounterInstructions || '';
-        if (document.getElementById('settingTermsUrl')) document.getElementById('settingTermsUrl').value = branding.termsUrl || '';
+          setVal('settingBusinessName', mData.businessName);
+          setVal('settingWebhookUrl', mData.webhookUrl);
+          setVal('settingWebhookSecret', mData.webhookSecret);
 
-        // Canonical Cloudflare Configuration & Environment
-        currentEnvMode = branding.envMode || mData.envMode || 'localhost';
-        currentDomainPrefix = branding.deploymentPrefix || branding.domainPrefix || mData.deploymentPrefix || mData.domainPrefix || 'pay';
-        currentDomainTld = branding.cloudflareDomain || branding.domainTld || mData.cloudflareDomain || mData.domainTld || '';
+          setVal('settingAppName', branding.appName || 'YOUPI PG');
+          setVal('settingLogoUrl', branding.logoUrl);
+          setVal('settingSidebarNotice', branding.sidebarNotice);
+          setVal('settingFooterGuarantee', branding.footerGuarantee);
+          setVal('settingCounterInstructions', branding.counterInstructions);
+          setVal('settingPrimaryColor', branding.primaryColor || '#0b63e5');
+          setVal('settingColorPicker', branding.primaryColor || '#0b63e5');
 
-        if (document.getElementById('settingDomainPrefix')) document.getElementById('settingDomainPrefix').value = currentDomainPrefix;
-        if (document.getElementById('settingDomainTld')) document.getElementById('settingDomainTld').value = currentDomainTld;
+          setVal('settingHeaderTheme', branding.headerTheme || 'gradient');
+          setVal('settingTrustBadgeText', branding.trustBadgeText);
+          setCheck('settingHideTrustBadge', branding.hideTrustBadge);
+          setVal('settingSubbannerText', branding.subbannerText);
+          setCheck('settingHideSubbanner', branding.hideSubbanner);
+          setCheck('settingHideTimeSavingBanner', branding.hideTimeSavingBanner);
+          setCheck('settingHidePoweredBy', branding.hidePoweredBy);
+          setVal('settingCardCounterInstructions', branding.cardCounterInstructions);
+          setVal('settingTermsUrl', branding.termsUrl);
 
-        setEnvMode(currentEnvMode, false);
-        updateCloudflarePreview();
+          // Canonical Cloudflare Configuration & Environment
+          currentEnvMode = branding.envMode || mData.envMode || 'localhost';
+          currentDomainPrefix = branding.deploymentPrefix || branding.domainPrefix || mData.deploymentPrefix || mData.domainPrefix || 'pay';
+          currentDomainTld = branding.cloudflareDomain || branding.domainTld || mData.cloudflareDomain || mData.domainTld || '';
 
-        // Selling Mode
-        const sellingMode = mData.sellingMode || branding.sellingMode || 'ONLINE';
-        setSellingMode(sellingMode);
+          setVal('settingDomainPrefix', currentDomainPrefix);
+          setVal('settingDomainTld', currentDomainTld);
 
-        const codOn = mData.codEnabled !== undefined
-          ? Boolean(mData.codEnabled)
-          : (branding.codEnabled !== undefined
-            ? Boolean(branding.codEnabled)
-            : (branding.enabledPaymentMethods ? branding.enabledPaymentMethods.includes('COD') : false));
-        const cashOn = mData.cashEnabled !== undefined ? mData.cashEnabled : (branding.cashEnabled !== undefined ? branding.cashEnabled : true);
-        const cardOn = mData.cardEnabled !== undefined ? mData.cardEnabled : (branding.cardEnabled !== undefined ? branding.cardEnabled : true);
+          setEnvMode(currentEnvMode, false);
+          updateCloudflarePreview();
 
-        if (document.getElementById('toggleMethodCod')) document.getElementById('toggleMethodCod').checked = Boolean(codOn);
-        if (document.getElementById('toggleMethodCash')) document.getElementById('toggleMethodCash').checked = Boolean(cashOn);
-        if (document.getElementById('toggleMethodCard')) document.getElementById('toggleMethodCard').checked = Boolean(cardOn);
+          // Selling Mode
+          const sellingMode = mData.sellingMode || branding.sellingMode || 'ONLINE';
+          setSellingMode(sellingMode, false);
 
-        const supportEmails = mData.supportEmails || branding.supportEmails || (mData.contactEmail ? [mData.contactEmail] : []);
-        document.getElementById('settingSupportEmails').value = Array.isArray(supportEmails) ? supportEmails.join(', ') : (supportEmails || '');
+          const codOn = mData.codEnabled !== undefined
+            ? Boolean(mData.codEnabled)
+            : (branding.codEnabled !== undefined
+              ? Boolean(branding.codEnabled)
+              : (branding.enabledPaymentMethods ? branding.enabledPaymentMethods.includes('COD') : false));
+          const cashOn = mData.cashEnabled !== undefined ? mData.cashEnabled : (branding.cashEnabled !== undefined ? branding.cashEnabled : true);
+          const cardOn = mData.cardEnabled !== undefined ? mData.cardEnabled : (branding.cardEnabled !== undefined ? branding.cardEnabled : true);
 
-        const supportMobiles = mData.supportMobiles || branding.supportMobiles || (mData.contactPhone ? [mData.contactPhone] : []);
-        document.getElementById('settingSupportMobiles').value = Array.isArray(supportMobiles) ? supportMobiles.join(', ') : (supportMobiles || '');
+          setCheck('toggleMethodCod', codOn);
+          setCheck('toggleMethodCash', cashOn);
+          setCheck('toggleMethodCard', cardOn);
 
-        document.getElementById('settingPrivacyPolicyUrl').value = mData.privacyPolicyUrl || branding.privacyPolicyUrl || '';
+          const supportEmails = mData.supportEmails || branding.supportEmails || (mData.contactEmail ? [mData.contactEmail] : []);
+          setVal('settingSupportEmails', Array.isArray(supportEmails) ? supportEmails.join(', ') : (supportEmails || ''));
 
-        updateLiveWhiteLabelPreview();
-        settingsLoaded = true;
+          const supportMobiles = mData.supportMobiles || branding.supportMobiles || (mData.contactPhone ? [mData.contactPhone] : []);
+          setVal('settingSupportMobiles', Array.isArray(supportMobiles) ? supportMobiles.join(', ') : (supportMobiles || ''));
+
+          setVal('settingPrivacyPolicyUrl', mData.privacyPolicyUrl || branding.privacyPolicyUrl || '');
+
+          updateLiveWhiteLabelPreview();
+        }
       } catch (e) {
-        console.error(e);
+        console.error('Error fetching gateway settings:', e);
+      } finally {
+        settingsLoaded = true;
       }
     }
 
@@ -4441,13 +4477,13 @@
     }
 
     async function saveMerchantBrandingAndToggles() {
-      if (!settingsLoaded) return showAdminToast('Settings are still loading. Please wait a moment.', false);
+      settingsLoaded = true;
       const businessName = document.getElementById('settingBusinessName')?.value.trim() || '';
       const appName = document.getElementById('settingAppName')?.value.trim() || 'YOUPI PG';
       const logoUrl = document.getElementById('settingLogoUrl')?.value.trim() || '';
       const primaryColor = document.getElementById('settingPrimaryColor')?.value.trim() || '#0b63e5';
-      const sidebarNotice = document.getElementById('settingSidebarNotice')?.value.trim() || '';
-      const footerGuarantee = document.getElementById('settingFooterGuarantee')?.value.trim() || '';
+      const sidebarNotice = document.getElementById('settingSidebarNotice')?.value.trim() || (currentMerchantBranding?.sidebarNotice || '');
+      const footerGuarantee = document.getElementById('settingFooterGuarantee')?.value.trim() || (currentMerchantBranding?.footerGuarantee || '');
       const counterInstructions = document.getElementById('settingCounterInstructions')?.value.trim() || '';
       const webhookUrl = document.getElementById('settingWebhookUrl')?.value.trim() || '';
 
@@ -4533,6 +4569,7 @@
         });
         const data = await res.json();
         if (res.ok) {
+          if (data.branding) currentMerchantBranding = data.branding;
           showAdminToast('Store settings & branding saved successfully! Live on checkout.');
           updateLiveWhiteLabelPreview();
         } else {
