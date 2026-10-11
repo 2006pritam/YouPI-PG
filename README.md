@@ -49,10 +49,14 @@
 
 See **YOUPI PG V2** live in action across Desktop and Mobile checkout flows:
 
-| 🖥️ Desktop Modal Flow (`assets/Desktop.mp4`) | 📱 Mobile Drawer & App Switcher (`assets/Mobile.mp4`) |
+| 🖥️ Desktop Modal Flow | 📱 Mobile Drawer & App Switcher |
 | :---: | :---: |
-| <video src="assets/Desktop.mp4" controls width="100%"></video><br/>▶️ **[Watch / Download Desktop Demo](assets/Desktop.mp4)** | <video src="assets/Mobile.mp4" controls width="80%"></video><br/>▶️ **[Watch / Download Mobile Demo](assets/Mobile.mp4)** |
+| <img src="assets/desktop-demo.gif" width="100%" alt="Desktop Checkout Demo" /><br/><sub>*Full end-to-end checkout: One-script modal, WhatsApp OTP, dynamic vector QR & bank observation.*</sub> | <img src="assets/mobile-demo.gif" width="60%" alt="Mobile Checkout Demo" /><br/><sub>*Ultra-responsive bottom drawer with 1-tap deep-link intent for GPay, PhonePe, Paytm & CRED.*</sub> |
 | • **Zero-JS One-Script Trigger**: Auto-binds to `[data-youpi-pay]`<br/>• **WhatsApp Pre-Checkout OTP**: Real-time 6-digit phone verification<br/>• **Dynamic Vector SVG QR**: Pure vector QR code with dual timers<br/>• **Automated Observer Credit**: Instant credit via bank SMS/Gmail | • **Responsive Bottom Drawer**: Native app-feel mobile UI<br/>• **Direct UPI App Deep-Linking**: GPay, PhonePe, Paytm, CRED<br/>• **Real-Time Payment Polling**: Instant status reflection<br/>• **Counter Desk Modalities**: Configurable Cash & Card fallback |
+
+<br/>
+
+> **High-Definition 120FPS Raw Recordings**: [assets/Desktop.mp4](assets/Desktop.mp4) • [assets/Mobile.mp4](assets/Mobile.mp4)
 
 <br/>
 
