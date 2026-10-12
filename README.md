@@ -189,7 +189,7 @@ Never leave customers hanging with blank screens or 404 errors:
 ### 1. Clone & Install Dependencies
 Standard `npm install` works out-of-the-box across all packages and apps without any protocol issues:
 ```bash
-git clone https://github.com/gxurav1710/YouPI-PG---Self-hosted-UPI-payment-gateway-.git youpi-pg
+git clone https://github.com/gxurav1710/YouPI-PG.git youpi-pg
 cd youpi-pg
 npm install
 ```
