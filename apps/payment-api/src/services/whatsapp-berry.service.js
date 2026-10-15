@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { generateQrSvg } from '@youpi/core';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -15,6 +15,9 @@ async function loadDependencies() {
   if (!BerryProtocolClass) {
     const candidates = [
       'berryprotocol',
+      pathToFileURL(path.resolve(rootDir, 'node_modules/berryprotocol/dist/index.js')).href,
+      pathToFileURL(path.resolve(rootDir, 'apps/payment-api/node_modules/berryprotocol/dist/index.js')).href,
+      'file:///D:/WA-USERAUTH DEV/node_modules/berryprotocol/dist/index.js',
       'file:///D:/E-Commerce PKG/services/whatsapp-worker/node_modules/berryprotocol/dist/index.js',
       'file:///D:/ECOM AND YOUPI PG INTEGRATION/E-Commerce PACKAGE/services/whatsapp-worker/node_modules/berryprotocol/dist/index.js',
       'file:///D:/distribution/services/whatsapp-worker/node_modules/berryprotocol/dist/index.js'
@@ -33,6 +36,9 @@ async function loadDependencies() {
   if (!qrcodeLib) {
     const qrCandidates = [
       'qrcode',
+      pathToFileURL(path.resolve(rootDir, 'node_modules/qrcode/lib/index.js')).href,
+      pathToFileURL(path.resolve(rootDir, 'apps/payment-api/node_modules/qrcode/lib/index.js')).href,
+      'file:///D:/WA-USERAUTH DEV/node_modules/qrcode/lib/index.js',
       'file:///D:/E-Commerce PKG/services/whatsapp-worker/node_modules/qrcode/lib/index.js',
       'file:///D:/ECOM AND YOUPI PG INTEGRATION/E-Commerce PACKAGE/services/whatsapp-worker/node_modules/qrcode/lib/index.js',
       'file:///D:/distribution/services/whatsapp-worker/node_modules/qrcode/lib/index.js'
@@ -49,14 +55,21 @@ async function loadDependencies() {
 }
 
 /**
- * Ensures any pairing string or QR data is converted to an authentic, renderable Data URI.
- * Uses qrcode library if available, with pure-JS SVG Base64 fallback from @youpi/core.
+ * Ensures any pairing string or QR data is formatted as an official WhatsApp Web
+ * pairing link (https://wa.me/settings/linked_devices#2@...) and converted to an
+ * authentic, renderable Data URI (PNG or SVG).
  */
 export async function formatQrDataUrl(rawText, qrcodeModule = null) {
   if (!rawText) return null;
   if (typeof rawText === 'string' && rawText.startsWith('data:image/')) {
     return rawText;
   }
+
+  let text = typeof rawText === 'string' ? rawText : String(rawText);
+  if (text.startsWith('2@') || text.startsWith('1@')) {
+    text = `https://wa.me/settings/linked_devices#${text}`;
+  }
+
   let qrEngine = qrcodeModule || qrcodeLib;
   if (!qrEngine) {
     const deps = await loadDependencies();
@@ -64,9 +77,10 @@ export async function formatQrDataUrl(rawText, qrcodeModule = null) {
   }
   if (qrEngine && typeof qrEngine.toDataURL === 'function') {
     try {
-      const dataUrl = await qrEngine.toDataURL(rawText, {
+      const dataUrl = await qrEngine.toDataURL(text, {
         width: 320,
         margin: 2,
+        errorCorrectionLevel: 'M',
         color: { dark: '#0f172a', light: '#ffffff' }
       });
       if (dataUrl && dataUrl.startsWith('data:image/')) {
@@ -77,7 +91,7 @@ export async function formatQrDataUrl(rawText, qrcodeModule = null) {
     }
   }
   try {
-    const svg = generateQrSvg(rawText, 320, 'M');
+    const svg = generateQrSvg(text, 320, 'M');
     return 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64');
   } catch (err) {
     console.error('[WhatsAppBerryService] Failed to generate QR Data URL:', err.message);
@@ -220,7 +234,7 @@ export class WhatsAppBerryService extends EventEmitter {
     this.isInitializing = false;
   }
 
-  async waitForQrCode(timeoutMs = 6000) {
+  async waitForQrCode(timeoutMs = 10000) {
     if (this.qrCode && this.status === 'QR_READY') {
       return this.qrCode;
     }
@@ -230,14 +244,14 @@ export class WhatsAppBerryService extends EventEmitter {
         if (!settled) {
           settled = true;
           this.removeListener('qr', onQr);
-          if (!this.qrCode) {
+          if (!this.qrCode && process.env.NODE_ENV === 'test') {
             const { qrcode } = await loadDependencies();
-            const fallbackStr = `berry-pair:${Date.now()}`;
+            const fallbackStr = `https://wa.me/settings/linked_devices#2@mock_test_session_${Date.now()},mock_key,1`;
             const dataUrl = await formatQrDataUrl(fallbackStr, qrcode);
             this.qrCode = { raw: fallbackStr, dataUrl };
             this.status = 'QR_READY';
           }
-          resolve(this.qrCode);
+          resolve(this.qrCode || null);
         }
       }, timeoutMs);
 
@@ -264,14 +278,8 @@ export class WhatsAppBerryService extends EventEmitter {
       const { BerryProtocol, qrcode } = await loadDependencies();
 
       if (!BerryProtocol) {
-        this.isSimulatedMode = true;
-        this.status = 'QR_READY';
-        this.phoneNumber = null;
-        const simRaw = `BERRY_PAIR_${Date.now()}`;
-        const simDataUrl = await formatQrDataUrl(simRaw, qrcode);
-        this.qrCode = { raw: simRaw, dataUrl: simDataUrl };
-        console.log('[WhatsAppBerryService] Running in pairing QR mode (berryprotocol standalone). QR ready.');
-        this.emit('qr', this.qrCode);
+        console.error('[WhatsAppBerryService] ERROR: BerryProtocol package not found. Run "npm install".');
+        this.status = 'DISCONNECTED';
         this.emit('status', this.status);
         return;
       }
@@ -289,6 +297,7 @@ export class WhatsAppBerryService extends EventEmitter {
       }
 
       this.status = 'CONNECTING';
+      this.emit('status', this.status);
 
       this.client = new BerryProtocol({
         sessionId: this.sessionId,
@@ -308,15 +317,8 @@ export class WhatsAppBerryService extends EventEmitter {
 
       console.log('[WhatsAppBerryService] BerryProtocol initialized and listening for events.');
     } catch (err) {
-      console.warn(`[WhatsAppBerryService] BerryProtocol init fallback to pairing QR: ${err.message}`);
-      this.isSimulatedMode = true;
-      this.status = 'QR_READY';
-      this.phoneNumber = null;
-      const fallbackRaw = `BERRY_PAIR_${Date.now()}`;
-      const { qrcode } = await loadDependencies();
-      const fallbackDataUrl = await formatQrDataUrl(fallbackRaw, qrcode);
-      this.qrCode = { raw: fallbackRaw, dataUrl: fallbackDataUrl };
-      this.emit('qr', this.qrCode);
+      console.warn(`[WhatsAppBerryService] BerryProtocol init error: ${err.message}`);
+      this.status = 'DISCONNECTED';
       this.emit('status', this.status);
     } finally {
       this.isInitializing = false;
@@ -326,7 +328,14 @@ export class WhatsAppBerryService extends EventEmitter {
   setupListeners(qrcodeLib = null) {
     if (!this.client) return;
 
-    this.client.on('auth.qr', async ({ value }) => {
+    let lastRawQr = null;
+
+    const handleQrUpdate = async (value) => {
+      if (!value) return;
+      let rawText = typeof value === 'string' ? value : (value?.value || value?.qr || String(value));
+      if (!rawText || rawText === lastRawQr) return;
+      lastRawQr = rawText;
+
       // If we already have saved credentials and phone number, do not wipe session on transient QR events
       const credsFile1 = path.join(this.sessionPath, 'creds.json');
       const credsFile2 = path.join(this.sessionPath, this.sessionId, 'creds.json');
@@ -335,23 +344,32 @@ export class WhatsAppBerryService extends EventEmitter {
         return;
       }
 
+      // Format as official WhatsApp Web pairing link if not already prefixed
+      if (rawText.startsWith('2@') || rawText.startsWith('1@')) {
+        rawText = `https://wa.me/settings/linked_devices#${rawText}`;
+      }
+
       try {
-        const dataUrl = await formatQrDataUrl(value, qrcodeLib);
+        const dataUrl = await formatQrDataUrl(rawText, qrcodeLib);
 
         this.qrCode = {
-          raw: value,
+          raw: rawText,
           dataUrl
         };
         this.status = 'QR_READY';
         this.phoneNumber = null;
 
-        console.log('[WhatsAppBerryService] New pairing QR Code generated successfully.');
+        console.log('[WhatsAppBerryService] Official WhatsApp Web pairing QR Code generated successfully.');
         this.emit('qr', this.qrCode);
         this.emit('status', this.status);
       } catch (err) {
         console.error(`[WhatsAppBerryService] QR render error: ${err.message}`);
       }
-    });
+    };
+
+    this.client.on('auth.qr', ({ value }) => handleQrUpdate(value));
+    this.client.on('qr', (qr) => handleQrUpdate(qr));
+    this.client.on('auth.link', ({ value }) => handleQrUpdate(value));
 
     this.client.on('auth.pairing_code', ({ code, phoneNumber }) => {
       this.pairingCode = code;
@@ -538,11 +556,14 @@ export class WhatsAppBerryService extends EventEmitter {
     const { BerryProtocol, qrcode } = await loadDependencies();
 
     if (!BerryProtocol) {
-      const mockCode = `${Math.floor(1000 + Math.random() * 9000)}${Math.floor(1000 + Math.random() * 9000)}`;
-      this.pairingCode = mockCode;
-      this.pairingPhone = clean;
-      this.status = 'PAIRING_CODE_READY';
-      return { success: true, pairingCode: mockCode, phoneNumber: clean };
+      if (process.env.NODE_ENV === 'test') {
+        const mockCode = `${Math.floor(1000 + Math.random() * 9000)}${Math.floor(1000 + Math.random() * 9000)}`;
+        this.pairingCode = mockCode;
+        this.pairingPhone = clean;
+        this.status = 'PAIRING_CODE_READY';
+        return { success: true, pairingCode: mockCode, phoneNumber: clean };
+      }
+      throw new Error('BerryProtocol engine is not available. Please ensure dependencies are installed.');
     }
 
     this.status = 'CONNECTING';

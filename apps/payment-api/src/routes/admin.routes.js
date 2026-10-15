@@ -1110,7 +1110,13 @@ export function registerAdminRoutes(server, ctx) {
     }
 
     const info = berry.getClientInfo();
-    const qr = berry.getQrCode();
+    let qr = berry.getQrCode();
+    if (!qr && berry.client?.lastQr) {
+      const rawText = berry.client.lastQr;
+      const dataUrl = await formatQrDataUrl(rawText);
+      qr = { raw: rawText, dataUrl };
+    }
+
     let qrPayload = qr?.dataUrl || (typeof qr === 'string' && qr.startsWith('data:image/') ? qr : null);
     if (!qrPayload && (qr?.raw || typeof qr === 'string')) {
       const rawText = qr?.raw || (typeof qr === 'string' ? qr : null);
@@ -1140,7 +1146,13 @@ export function registerAdminRoutes(server, ctx) {
       return;
     }
 
-    const qr = berry.getQrCode();
+    let qr = berry.getQrCode();
+    if (!qr && berry.client?.lastQr) {
+      const rawText = berry.client.lastQr;
+      const dataUrl = await formatQrDataUrl(rawText);
+      qr = { raw: rawText, dataUrl };
+    }
+
     let qrPayload = qr?.dataUrl || (typeof qr === 'string' && qr.startsWith('data:image/') ? qr : null);
     if (!qrPayload && (qr?.raw || typeof qr === 'string')) {
       const rawText = qr?.raw || (typeof qr === 'string' ? qr : null);
@@ -1174,9 +1186,15 @@ export function registerAdminRoutes(server, ctx) {
 
       let qr = null;
       if (typeof berry.waitForQrCode === 'function') {
-        qr = await berry.waitForQrCode(4000);
+        qr = await berry.waitForQrCode(8000);
       } else {
         qr = berry.getQrCode();
+      }
+
+      if (!qr && berry.client?.lastQr) {
+        const rawText = berry.client.lastQr;
+        const dataUrl = await formatQrDataUrl(rawText);
+        qr = { raw: rawText, dataUrl };
       }
 
       let qrPayload = qr?.dataUrl || (typeof qr === 'string' && qr.startsWith('data:image/') ? qr : null);

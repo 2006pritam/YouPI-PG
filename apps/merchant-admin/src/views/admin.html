@@ -2998,10 +2998,10 @@
             <div id="waQrBox"
               style="background:#ffffff; border-radius:0.75rem; padding:1rem; display:inline-block; margin:0 auto 1rem auto; text-align:center;">
               <div id="waQrPlaceholder"
-                style="width:200px; height:200px; display:flex; align-items:center; justify-content:center; color:#0f172a; font-size:0.85rem;">
+                style="width:240px; height:240px; display:flex; align-items:center; justify-content:center; color:#0f172a; font-size:0.85rem; text-align:center; padding:1rem;">
                 Click "Connect / Refresh QR" to pair device
               </div>
-              <img id="waQrImg" src="" alt="WhatsApp Pairing QR" style="width:200px; height:200px; display:none;" onerror="this.style.display='none'; if(document.getElementById('waQrPlaceholder')){ document.getElementById('waQrPlaceholder').style.display='flex'; document.getElementById('waQrPlaceholder').innerText='QR preview unavailable. Click Refresh QR.'; }" />
+              <img id="waQrImg" src="" alt="WhatsApp Pairing QR" style="width:240px; height:240px; display:none; image-rendering:pixelated;" onerror="this.style.display='none'; if(document.getElementById('waQrPlaceholder')){ document.getElementById('waQrPlaceholder').style.display='flex'; document.getElementById('waQrPlaceholder').innerText='QR preview unavailable. Click Refresh QR.'; }" />
             </div>
 
             <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
@@ -5344,6 +5344,19 @@
               qrPlaceholder.innerText = 'Preparing pairing QR... Click "Refresh QR Code"';
             }
           }
+        } else if (data.status === 'CONNECTING') {
+          if (badge) { badge.className = 'badge badge-info'; badge.innerText = 'CONNECTING'; }
+          if (dot) dot.style.color = '#38bdf8';
+          if (title) title.innerText = 'Connecting to WhatsApp...';
+          if (phoneDisplay) phoneDisplay.innerText = 'Establishing secure WhatsApp pairing session...';
+          if (qrBox) qrBox.style.display = 'inline-block';
+          if (qrImg) qrImg.style.display = 'none';
+          if (qrPlaceholder) {
+            qrPlaceholder.style.display = 'flex';
+            qrPlaceholder.innerText = 'Generating official WhatsApp pairing QR...';
+          }
+          if (btnDisconnect) btnDisconnect.style.display = 'none';
+          if (btnConnect) btnConnect.innerText = '⏳ Connecting...';
         } else {
           if (badge) { badge.className = 'badge badge-danger'; badge.innerText = 'DISCONNECTED'; }
           if (dot) dot.style.color = '#ef4444';
@@ -5351,7 +5364,10 @@
           if (phoneDisplay) phoneDisplay.innerText = 'No WhatsApp session active';
           if (qrBox) qrBox.style.display = 'inline-block';
           if (qrImg) qrImg.style.display = 'none';
-          if (qrPlaceholder) qrPlaceholder.style.display = 'flex';
+          if (qrPlaceholder) {
+            qrPlaceholder.style.display = 'flex';
+            qrPlaceholder.innerText = 'Click "Connect WhatsApp" to pair device';
+          }
           if (btnDisconnect) btnDisconnect.style.display = 'none';
           if (btnConnect) btnConnect.innerText = '⚡ Connect WhatsApp';
         }
