@@ -277,6 +277,17 @@ export function registerAdminRoutes(server, ctx) {
       return;
     }
 
+    // Manual confirmation is only valid for counter payments still awaiting settlement.
+    // A UPI session must only reach SUCCESS through the verification engine.
+    if (session.method !== PaymentMethod.CASH_COUNTER && session.method !== PaymentMethod.CARD_COUNTER) {
+      HttpServer.json(res, 400, { error: `Manual confirmation is only allowed for counter payments (session method is '${session.method}').` });
+      return;
+    }
+    if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
+      HttpServer.json(res, 409, { error: `Cannot confirm a payment in terminal status '${session.status}'.` });
+      return;
+    }
+
     const updated = ctx.sessionRepo.transitionToTerminal(paymentId, PaymentStatus.SUCCESS);
 
     ctx.auditRepo.log({
