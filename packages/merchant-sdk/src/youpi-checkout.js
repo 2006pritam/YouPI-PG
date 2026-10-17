@@ -364,8 +364,23 @@
       backdrop.addEventListener('mouseup', stopOutsideDismiss, true);
     }
 
+    /**
+     * Origin of the checkout iframe this instance embeds. Messages from any
+     * other origin are ignored so a third party cannot forge payment events.
+     */
+    _checkoutOrigin() {
+      try {
+        const url = this.options.checkoutUrl || this.options.portalUrl;
+        if (url) return new URL(url, window.location.href).origin;
+      } catch (e) { }
+      return null;
+    }
+
     _handleMessage(e) {
       if (!e.data || typeof e.data !== 'object') return;
+
+      const expectedOrigin = this._checkoutOrigin();
+      if (expectedOrigin && e.origin !== expectedOrigin) return;
 
       const event = e.data.event;
       const rawData = e.data.data || e.data;

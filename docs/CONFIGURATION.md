@@ -22,6 +22,7 @@
 | `LATE_OBSERVATION_WINDOW_MS` | `1800000` | Safety window for matching late observations (30 minutes) |
 | `ANDROID_ENROLLMENT_SECRET` | `32+ chars` | Ephemeral secret token used to authorize device QR pairing |
 | `ANDROID_HEARTBEAT_TIMEOUT_MS` | `180000` | Inactivity window before Android device is marked DISCONNECTED |
+| `CHECKOUT_FRAME_ANCESTORS` | `*` | `frame-ancestors` CSP for the checkout page. Set it to your storefront origins (for example `https://shop.example.com`) to stop other sites framing the checkout page. |
 
 ---
 

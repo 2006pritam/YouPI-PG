@@ -7,6 +7,31 @@ import { YoupiPaymentClient } from '@youpi/merchant-sdk';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
+/**
+ * Escapes a value for interpolation into the order outcome pages. These values
+ * come straight from the query string, so they are attacker controlled.
+ */
+export function escapeHtml(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch]);
+}
+
+/**
+ * Replaces {{PLACEHOLDER}} tokens with escaped values.
+ *
+ * The replacement is done with a replacer function so that `$&`, `$'` and `` $` ``
+ * inside an attacker-controlled value are inserted literally instead of being
+ * expanded as replacement patterns.
+ */
+export function renderTemplate(template, values) {
+  return template.replace(/\{\{([A-Z0-9_]+)\}\}/g, (match, key) => {
+    if (!Object.prototype.hasOwnProperty.call(values, key)) return match;
+    return escapeHtml(values[key]);
+  });
+}
+
 // In production, reliably ensure environment variables from .env are loaded if not already provided
 if (!process.env.BASE_PAYMENT_API_URL && typeof process.loadEnvFile === 'function') {
   try {
@@ -232,12 +257,13 @@ export class CoinWalletStoreServer {
         const mode = url.searchParams.get('mode') || url.searchParams.get('payment_mode') || 'UPI';
         const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 
-        let rendered = this.orderSuccessHtml
-          .replaceAll('{{ORDER_ID}}', orderId)
-          .replaceAll('{{AMOUNT}}', amount)
-          .replaceAll('{{UTR}}', utr)
-          .replaceAll('{{MODE}}', mode)
-          .replaceAll('{{TIMESTAMP}}', timestamp);
+        let rendered = renderTemplate(this.orderSuccessHtml, {
+          ORDER_ID: orderId,
+          AMOUNT: amount,
+          UTR: utr,
+          MODE: mode,
+          TIMESTAMP: timestamp
+        });
 
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
@@ -253,10 +279,12 @@ export class CoinWalletStoreServer {
         try { this.orderFailedHtml = fs.readFileSync(path.join(__dirname, 'order-failed.html'), 'utf8'); } catch {}
         const orderId = url.searchParams.get('order_id') || url.searchParams.get('orderId') || 'ORDER-DEMO';
         const reason = url.searchParams.get('reason') || 'Transaction verification timed out or declined.';
-        let rendered = this.orderFailedHtml
-          .replaceAll('{{ORDER_ID}}', orderId)
-          .replaceAll('ORDER-#', orderId)
-          .replaceAll('{{REASON}}', reason);
+        let rendered = renderTemplate(this.orderFailedHtml, {
+          ORDER_ID: orderId,
+          REASON: reason
+        });
+        // Legacy template still carries a literal `ORDER-#` placeholder.
+        rendered = rendered.replace(/ORDER-#/g, () => escapeHtml(orderId));
 
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
@@ -271,7 +299,7 @@ export class CoinWalletStoreServer {
       if ((pathname === '/order-suspicious' || pathname === '/suspicious') && (method === 'GET' || method === 'HEAD')) {
         try { this.orderSuspiciousHtml = fs.readFileSync(path.join(__dirname, 'order-suspicious.html'), 'utf8'); } catch {}
         const orderId = url.searchParams.get('order_id') || url.searchParams.get('orderId') || 'ORDER-DEMO';
-        let rendered = this.orderSuspiciousHtml.replaceAll('{{ORDER_ID}}', orderId);
+        let rendered = renderTemplate(this.orderSuspiciousHtml, { ORDER_ID: orderId });
 
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
@@ -286,7 +314,7 @@ export class CoinWalletStoreServer {
       if ((pathname === '/order-expired' || pathname === '/expired') && (method === 'GET' || method === 'HEAD')) {
         try { this.orderExpiredHtml = fs.readFileSync(path.join(__dirname, 'order-expired.html'), 'utf8'); } catch {}
         const orderId = url.searchParams.get('order_id') || url.searchParams.get('orderId') || 'ORDER-DEMO';
-        let rendered = this.orderExpiredHtml.replaceAll('{{ORDER_ID}}', orderId);
+        let rendered = renderTemplate(this.orderExpiredHtml, { ORDER_ID: orderId });
 
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
@@ -301,7 +329,7 @@ export class CoinWalletStoreServer {
       if ((pathname === '/order-cancelled' || pathname === '/cancelled') && (method === 'GET' || method === 'HEAD')) {
         try { this.orderCancelledHtml = fs.readFileSync(path.join(__dirname, 'order-cancelled.html'), 'utf8'); } catch {}
         const orderId = url.searchParams.get('order_id') || url.searchParams.get('orderId') || 'ORDER-DEMO';
-        let rendered = this.orderCancelledHtml.replaceAll('{{ORDER_ID}}', orderId);
+        let rendered = renderTemplate(this.orderCancelledHtml, { ORDER_ID: orderId });
 
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
