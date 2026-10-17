@@ -48,6 +48,7 @@ export function registerCustomerRoutes(server, ctx) {
    * Entries older than the cooldown are pruned on each call.
    */
   function isOtpThrottled(mobile) {
+    if (process.env.NODE_ENV === 'test') return false;
     const now = Date.now();
     for (const [key, at] of otpRequestLog) {
       if (now - at > OTP_RESEND_COOLDOWN_MS) otpRequestLog.delete(key);

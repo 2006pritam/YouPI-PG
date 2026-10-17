@@ -1,4 +1,4 @@
-import { PaymentStatus } from './enums.js';
+import { PaymentStatus, PublicPaymentOutcome } from './enums.js';
 
 /**
  * Allowed payment session state transitions.
@@ -78,3 +78,37 @@ export function isTerminalStatus(status) {
 export function holdsSlot(status) {
   return SLOT_OCCUPYING_STATES.includes(status);
 }
+
+/**
+ * Asserts a valid transition, throwing a detailed domain error if violated.
+ * @param {string} currentState
+ * @param {string} nextState
+ */
+export function assertValidTransition(currentState, nextState) {
+  if (!isValidTransition(currentState, nextState)) {
+    throw new Error(
+      `Illegal payment state transition: Cannot move from '${currentState}' to '${nextState}'.`
+    );
+  }
+}
+
+/**
+ * Converts internal payment status to the public contract outcome.
+ * Throws if the status is not terminal.
+ * @param {string} status
+ * @returns {string}
+ */
+export function toPublicOutcome(status) {
+  switch (status) {
+    case PaymentStatus.SUCCESS:
+      return PublicPaymentOutcome.SUCCESS;
+    case PaymentStatus.FAILED:
+      return PublicPaymentOutcome.FAILED;
+    case PaymentStatus.EXPIRED:
+      return PublicPaymentOutcome.EXPIRED;
+    case PaymentStatus.CANCELLED:
+      return PublicPaymentOutcome.CANCELLED;
+    default:
+      throw new Error(`Status '${status}' is an internal non-terminal state and cannot be mapped to a public outcome.`);
+  }
+}
