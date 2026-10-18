@@ -9,9 +9,12 @@
    ╚═╝    ╚═════╝  ╚═════╝ ╚═╝     ╚═╝    ╚═╝      ╚═════╝ 
 ```
 
-# ⚡ YOUPI PG V2
+#  YOUPI PG V2
 
-### The Sovereign, Self-Hosted UPI Payment Gateway for Independent Merchants
+### A Self-Hosted UPI Payment Gateway for Merchants
+
+
+**Originally created by [Gaurav](https://github.com/gxurav1710). The project is now maintained by [Zenuxs](https://zenuxs.in).**
 **0% Gateway Fees • Direct-to-Bank Settlement • WhatsApp Pre-Checkout OTP • Bank SMS & Gmail Observers**
 
 <br/>
@@ -45,11 +48,11 @@
 
 <br/>
 
-## 🎬 Live Product Demos
+##  Live Product Demos
 
 See **YOUPI PG V2** live in action across Desktop and Mobile checkout flows:
 
-| 🖥️ Desktop Modal Flow | 📱 Mobile Drawer & App Switcher |
+|  Desktop Modal Flow |  Mobile Drawer & App Switcher |
 | :---: | :---: |
 | <img src="assets/desktop-demo.gif" width="100%" alt="Desktop Checkout Demo" /><br/><sub>*Full end-to-end checkout: One-script modal, WhatsApp OTP, dynamic vector QR & bank observation.*</sub> | <img src="assets/mobile-demo.gif" width="60%" alt="Mobile Checkout Demo" /><br/><sub>*Ultra-responsive bottom drawer with 1-tap deep-link intent for GPay, PhonePe, Paytm & CRED.*</sub> |
 | • **Zero-JS One-Script Trigger**: Auto-binds to `[data-youpi-pay]`<br/>• **WhatsApp Pre-Checkout OTP**: Real-time 6-digit phone verification<br/>• **Dynamic Vector SVG QR**: Pure vector QR code with dual timers<br/>• **Automated Observer Credit**: Instant credit via bank SMS/Gmail | • **Responsive Bottom Drawer**: Native app-feel mobile UI<br/>• **Direct UPI App Deep-Linking**: GPay, PhonePe, Paytm, CRED<br/>• **Real-Time Payment Polling**: Instant status reflection<br/>• **Counter Desk Modalities**: Configurable Cash & Card fallback |
@@ -62,11 +65,11 @@ See **YOUPI PG V2** live in action across Desktop and Mobile checkout flows:
 
 ---
 
-## 💡 Stop Paying 2–3% + 18% GST to Payment Aggregators
+##  Overview
 
 Traditional payment gateways (Razorpay, Cashfree, PayU, Stripe) lock your revenue into high fees, multi-day settlement delays, and sudden compliance freezes:
 
-| Comparison Metric | Traditional Aggregators (Razorpay / Cashfree) | ⚡ YOUPI PG (Self-Hosted Sovereign) |
+| Comparison Metric | Traditional Aggregators (Razorpay / Cashfree) |  YOUPI PG (Self-Hosted Sovereign) |
 | :--- | :--- | :--- |
 | **Transaction Fee** | **2.0% – 3.0% + 18% GST** per transaction | **0.0% (Zero Fees Forever)** |
 | **Settlement Speed** | **T+2 to T+3 Business Days** (Holdbacks) | **Instant (Direct into your Bank Account)** |
@@ -82,9 +85,9 @@ Traditional payment gateways (Razorpay, Cashfree, PayU, Stripe) lock your revenu
 
 ---
 
-## 🏗️ Architecture at a Glance
+##  Architecture at a Glance
 
-YOUPI PG converts your standard Indian personal or business UPI receiving accounts into an automated, zero-fee payment gateway by coupling **pure vector SVG QR codes** with an **automated multi-channel banking observation mesh**.
+YOUPI PG is designed to use standard Indian personal or business UPI receiving accounts for payment collection by coupling **pure vector SVG QR codes** with an **automated multi-channel banking observation mesh**.
 
 ```mermaid
 flowchart LR
@@ -131,44 +134,44 @@ flowchart LR
 
 ---
 
-## 🚀 Key Features & Superpowers
+##  Key Features
 
-### 1. ⚡ 0% Transaction Fees Forever
+### 1.  No Gateway Fee in the Self-Hosted Model
 Every rupee paid goes straight from your customer's bank account to your bank account via standard NPCI UPI rails. No intermediaries hold your money.
 
-### 2. 💬 WhatsApp Pre-Checkout Authentication (Berry Protocol)
+### 2.  WhatsApp Pre-Checkout Authentication (Berry Protocol)
 No more fake orders, bot spam, or fraudulent phone numbers. Before a customer can enter the checkout queue, the gateway delivers a cryptographically random 6-digit OTP directly to their WhatsApp app using the embedded Baileys/Berry Protocol socket. Verified customer profiles are remembered in browser `localStorage`.
 
-### 3. 🔒 Deterministic Single-Slot FIFO Queue Engine
+### 3.  Deterministic Single-Slot FIFO Queue Engine
 Because standard UPI alerts do not carry arbitrary merchant metadata, multiple concurrent transactions with identical amounts could create attribution confusion. YOUPI PG solves this with a mathematical invariant:
 - **Only ONE customer can pay on a VPA at a time.**
 - Other buyers wait in a database-backed FIFO queue with live position streaming.
-- Guarantees **100% exact payment matching** with zero payment mismatch errors!
+- This queue design is intended to reduce ambiguity when matching incoming payments.
 
-### 4. 📱 Native Android Observer APK (`com.youpi.observer`)
+### 4.  Native Android Observer APK (`com.youpi.observer`)
 A lightweight, battery-optimized Android foreground service that captures:
 - Cellular banking SMS (`android.provider.Telephony.SMS_RECEIVED`).
 - Real-time bank push notifications via `NotificationListenerService`.
 - Enrolls securely via ephemeral QR code and signs all observation payloads with **HMAC-SHA256**.
 
-### 5. 📧 Automated Gmail & Google Messages Ingestion
+### 5.  Automated Gmail & Google Messages Ingestion
 Dual backup observation channels:
 - **Gmail Observer (Port 6003):** Polls Google Cloud OAuth2 API or automated headless Chrome CDP inbox monitoring.
 - **SMS Observer (Port 6002):** Connects to Google Messages for Web via Chrome DevTools Protocol (CDP).
 
-### 6. 🏪 Dual Operational Modalities
+### 6.  Dual Operational Modalities
 - **Online Selling Mode:** UPI Vector QR + Cash on Delivery (COD) with customer pre-purchase verification and decoupled address lifecycle.
 - **Offline Store Counter Mode:** Designed for physical retail stores. Supports UPI QR, Cash at Till (`CASH_COUNTER`), and Card at POS Terminal (`CARD_COUNTER`) with an interactive real-time cashier till dock and instant SSE customer approval.
 
-### 7. 🎨 100% White-Label Customizer
+### 7.  White-Label Configuration
 Rebrand the checkout portal completely through the Merchant Admin Panel:
 - Custom app name, logo URL, and browser favicon.
 - Tailored color palettes, custom gradients, and trust badges.
 - Custom domain binding via Cloudflare Tunnels (`pay.yourbrand.com`).
 - Complete removal of any "Powered by YouPI PG" attribution.
 
-### 8. 🚦 5 Standardized Merchant Outcome Pages
-Never leave customers hanging with blank screens or 404 errors:
+### 8.  5 Standardized Merchant Outcome Pages
+The application includes the following customer outcome pages:
 - `/order-success` — Payment verified by observers, order marked paid and provisioned.
 - `/order-failed` — Verification timed out, reassuring customer no money was lost.
 - `/order-suspicious` — Flagged by fraud heuristics, held for manual compliance review.
@@ -179,7 +182,7 @@ Never leave customers hanging with blank screens or 404 errors:
 
 ---
 
-## ⚡ Quickstart in 60 Seconds
+##  Quickstart in 60 Seconds
 
 ### Prerequisites
 - **Node.js `>= 20.0.0` LTS** (`node -v`)
@@ -189,7 +192,7 @@ Never leave customers hanging with blank screens or 404 errors:
 ### 1. Clone & Install Dependencies
 Standard `npm install` works out-of-the-box across all packages and apps without any protocol issues:
 ```bash
-git clone https://github.com/gxurav1710/YouPI-PG.git youpi-pg
+git clone https://github.com/youpi-pg/YouPI-PG.git youpi-pg
 cd youpi-pg
 npm install
 ```
@@ -200,7 +203,7 @@ cp .env.example .env
 ```
 *(The default `.env` is pre-configured for localhost out of the box).*
 
-### 3. Zero-Config Launch (Auto-Initialized SQLite)
+### 3. Start the Services
 On first launch, YOUPI PG automatically provisions `data/youpi_pg.sqlite`, creates the directory if missing, and executes idempotent migrations and baseline seeds. No manual database setup is required:
 ```bash
 npm run dev
@@ -208,12 +211,12 @@ npm run dev
 npm start
 ```
 
-That's it! Your entire gateway cluster will spin up:
-- 🎛️ **Control Center Supervisor:** [`http://localhost:8090`](http://localhost:8090)
-- 📊 **Merchant Admin Panel:** [`http://localhost:6001`](http://localhost:6001)
-- 🛒 **YOUPI Showcase Demo Store:** [`http://localhost:5000`](http://localhost:5000)
-- ⚡ **Payment REST API:** [`http://localhost:6100`](http://localhost:6100)
-- 💳 **Customer Checkout Portal:** [`http://localhost:7000`](http://localhost:7000)
+The services can then be accessed at the following local addresses:
+-  **Control Center Supervisor:** [`http://localhost:8090`](http://localhost:8090)
+-  **Merchant Admin Panel:** [`http://localhost:6001`](http://localhost:6001)
+-  **YOUPI Showcase Demo Store:** [`http://localhost:5000`](http://localhost:5000)
+-  **Payment REST API:** [`http://localhost:6100`](http://localhost:6100)
+-  **Customer Checkout Portal:** [`http://localhost:7000`](http://localhost:7000)
 
 ### 4. Run the Full Regression Test Suite
 Verify all **31 test suites** across packages, apps, and chaos harnesses:
@@ -222,14 +225,14 @@ npm test
 ```
 ```text
 ============================================================
-🧪 YOUPI PG V2 — FULL REGRESSION TEST RUNNER
+ YOUPI PG V2 — FULL REGRESSION TEST RUNNER
 Running 31 curated test suites...
 ============================================================
-[1/31] Testing packages/common/src/__tests__/common.test.js... ✅ PASS (0.22s)
+[1/31] Testing packages/common/src/__tests__/common.test.js...  PASS (0.22s)
 ...
-[31/31] Testing scripts/production-infrastructure.test.js... ✅ PASS (0.17s)
+[31/31] Testing scripts/production-infrastructure.test.js...  PASS (0.17s)
 ============================================================
-🎉 ALL 31 TEST SUITES PASSED CLEANLY (Total: 17.68s)
+ ALL 31 TEST SUITES PASSED CLEANLY (Total: 17.68s)
 ============================================================
 ```
 
@@ -237,9 +240,9 @@ Running 31 curated test suites...
 
 ---
 
-## 📦 Universal Merchant Integration
+##  Universal Merchant Integration
 
-Integrating YOUPI PG into your website, web app, or e-commerce store takes less than 5 minutes.
+YOUPI PG can be integrated into a website, web application, or e-commerce store using the following steps.
 
 ### Step 1: Add the Universal Script to your `<head>`
 ```html
@@ -257,7 +260,7 @@ Add `data-youpi-pay` attributes to any existing HTML button:
         data-order-id="ORDER-1001"
         data-amount="499.00"
         data-currency="INR">
-  ⚡ Buy Now with YOUPI PG
+   Buy Now with YOUPI PG
 </button>
 ```
 *The script automatically intercepts the click, opens a centered desktop modal (or mobile slide-up bottom sheet), and launches the checkout session!*
@@ -282,7 +285,7 @@ window.Youpi.pay({
 ```
 
 ### Step 4: Authoritative Server-to-Server Webhook Verification
-> ⚠️ **CRITICAL SECURITY RULE:** Never fulfill orders based solely on frontend browser events. Always verify the backend HMAC-SHA256 signature! Consumers **MUST** compute the HMAC over the raw, unparsed request bytes before any JSON parsing.
+>  **CRITICAL SECURITY RULE:** Never fulfill orders based solely on frontend browser events. Always verify the backend HMAC-SHA256 signature! Consumers **MUST** compute the HMAC over the raw, unparsed request bytes before any JSON parsing.
 
 #### Webhook Contract:
 - **Header**: `X-Gateway-Signature: sha256=<64_char_hex_hash>`
@@ -421,7 +424,7 @@ func youpiWebhookHandler(w http.ResponseWriter, r *http.Request) {
 
 ---
 
-## 🔭 Tri-Channel Observation Mesh
+##  Tri-Channel Observation Mesh
 
 YOUPI PG confirms payments without expensive commercial banking APIs using a triple-layer observation pipeline:
 
@@ -467,7 +470,7 @@ YOUPI PG confirms payments without expensive commercial banking APIs using a tri
 
 ---
 
-## 🌐 Port Topology & Microservices Map
+##  Port Topology & Microservices Map
 
 | Service | Port | Directory | Entrypoint | Responsibility |
 | :--- | :---: | :--- | :--- | :--- |
@@ -484,7 +487,7 @@ YOUPI PG confirms payments without expensive commercial banking APIs using a tri
 
 ---
 
-## 🔒 Security & Reliability Architecture
+##  Security & Reliability Architecture
 
 - **64-Bit Integer Minor Units (Paise):** Financial values are strictly represented as integers (`49900` paise = ₹499.00). Floating-point rounding drift is mathematically impossible.
 - **Server-Authoritative Timers:** Timers are calculated strictly from SQLite state timestamps. Client-side browser tampering cannot manipulate countdowns.
@@ -496,27 +499,27 @@ YOUPI PG confirms payments without expensive commercial banking APIs using a tri
 
 ---
 
-## 📚 Documentation Hub
+##  Documentation Hub
 
 Deep-dive engineering manuals and operational runbooks are available in the [`/docs`](docs) directory:
 
 | Document | Description |
 | :--- | :--- |
-| 📘 [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Canonical System Architecture & Engineering Blueprint** |
-| 🚀 [`docs/INSTALLATION.md`](docs/INSTALLATION.md) | Host installation, prerequisites & environment setup |
-| ⚙️ [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | Environment configuration variables & secret management |
-| 📱 [`docs/ANDROID_MOBILE_APP.md`](docs/ANDROID_MOBILE_APP.md) | Native Android Kotlin Observer APK guide & permissions |
-| 🔭 [`docs/OBSERVERS_SETUP.md`](docs/OBSERVERS_SETUP.md) | Complete setup for Gmail, Google Messages & Android |
-| 💳 [`docs/MERCHANT_INTEGRATION.md`](docs/MERCHANT_INTEGRATION.md) | Full developer integration guide, SDK methods & webhooks |
-| 🎨 [`docs/WHITE_LABEL.md`](docs/WHITE_LABEL.md) | White-label branding customizer, domains & Cloudflare |
-| 🛠️ [`docs/OPERATIONS_TROUBLESHOOTING.md`](docs/OPERATIONS_TROUBLESHOOTING.md) | Production operations, logs, diagnostics & troubleshooting |
-| 🌐 [`openapi.yaml`](openapi.yaml) | Official OpenAPI 3.0 REST API specification |
+|  [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Canonical System Architecture & Engineering Blueprint** |
+|  [`docs/INSTALLATION.md`](docs/INSTALLATION.md) | Host installation, prerequisites & environment setup |
+|  [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | Environment configuration variables & secret management |
+|  [`docs/ANDROID_MOBILE_APP.md`](docs/ANDROID_MOBILE_APP.md) | Native Android Kotlin Observer APK guide & permissions |
+|  [`docs/OBSERVERS_SETUP.md`](docs/OBSERVERS_SETUP.md) | Complete setup for Gmail, Google Messages & Android |
+|  [`docs/MERCHANT_INTEGRATION.md`](docs/MERCHANT_INTEGRATION.md) | Full developer integration guide, SDK methods & webhooks |
+|  [`docs/WHITE_LABEL.md`](docs/WHITE_LABEL.md) | White-label branding customizer, domains & Cloudflare |
+|  [`docs/OPERATIONS_TROUBLESHOOTING.md`](docs/OPERATIONS_TROUBLESHOOTING.md) | Production operations, logs, diagnostics & troubleshooting |
+|  [`openapi.yaml`](openapi.yaml) | Official OpenAPI 3.0 REST API specification |
 
 <br/>
 
 ---
 
-## ⚖️ License
+##  License
 
 Distributed under commercial and sovereign licensing for independent merchant deployments. See [`LICENSE`](LICENSE) for full terms.
 
@@ -524,9 +527,9 @@ Distributed under commercial and sovereign licensing for independent merchant de
 
 <div align="center">
 
-### Built for Financial Sovereignty in India 🇮🇳
-**Take back control of your payments. Zero middleman fees. Direct settlement.**
+### YOUPI PG 
+**Self-hosted payment infrastructure with direct UPI settlement.**
 
-⭐ **Star this repository if you believe in open, zero-fee payment infrastructure!**
+⭐ **Contributions and feedback are welcome.**
 
 </div>
