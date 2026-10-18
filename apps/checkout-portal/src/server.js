@@ -97,12 +97,27 @@ export class CheckoutServer {
     }
   }
 
-  renderHtml(paymentId, state) {
+  loadTemplateWithPartials() {
     try {
-      this.template = fs.readFileSync(this.htmlTemplatePath, 'utf8');
-    } catch {}
+      let content = fs.readFileSync(this.htmlTemplatePath, 'utf8');
+      const partialsDir = path.resolve(__dirname, 'views', 'partials');
+      content = content.replace(/<!--\s*include:partials\/([a-zA-Z0-9_\-.]+)\s*-->/g, (match, filename) => {
+        try {
+          const partialPath = path.resolve(partialsDir, filename);
+          if (partialPath.startsWith(partialsDir) && fs.existsSync(partialPath)) {
+            return fs.readFileSync(partialPath, 'utf8');
+          }
+        } catch {}
+        return match;
+      });
+      return content;
+    } catch {
+      return this.template || '';
+    }
+  }
 
-    let html = this.template;
+  renderHtml(paymentId, state) {
+    let html = this.loadTemplateWithPartials();
 
     const appName = state?.branding?.appName || 'YouPI PG';
     const primaryColor = state?.branding?.primaryColor || '#0b63e5';
@@ -243,11 +258,14 @@ export class CheckoutServer {
         return;
       }
 
-      // Static icons: GET /icons/:filename
+      // Static icons: GET /icons/:filename with path traversal protection
       if (pathname.startsWith('/icons/')) {
         const iconName = path.basename(pathname);
-        const iconPath = path.join(__dirname, '..', 'public', 'icons', iconName);
-        if (fs.existsSync(iconPath)) {
+        const iconDir = path.resolve(__dirname, '..', 'public', 'icons');
+        const iconPath = path.resolve(iconDir, iconName);
+        const relative = path.relative(iconDir, iconPath);
+        const isSecure = relative && !relative.startsWith('..') && !path.isAbsolute(relative);
+        if (isSecure && fs.existsSync(iconPath)) {
           const ext = path.extname(iconName).toLowerCase();
           const contentType = ext === '.png' ? 'image/png' : ext === '.svg' ? 'image/svg+xml' : 'image/jpeg';
           res.writeHead(200, {
@@ -256,6 +274,28 @@ export class CheckoutServer {
             'Access-Control-Allow-Origin': '*'
           });
           fs.createReadStream(iconPath).pipe(res);
+          return;
+        }
+      }
+
+      // Static CSS & JS Asset Handler with Secure Path Traversal Prevention
+      if (pathname.startsWith('/css/') || pathname.startsWith('/js/')) {
+        const assetFolder = pathname.startsWith('/css/') ? 'css' : 'js';
+        const assetName = path.basename(pathname);
+        const assetDir = path.resolve(__dirname, '..', 'public', assetFolder);
+        const assetPath = path.resolve(assetDir, assetName);
+
+        const relative = path.relative(assetDir, assetPath);
+        const isSecure = relative && !relative.startsWith('..') && !path.isAbsolute(relative);
+
+        if (isSecure && fs.existsSync(assetPath)) {
+          const contentType = assetFolder === 'css' ? 'text/css; charset=utf-8' : 'application/javascript; charset=utf-8';
+          res.writeHead(200, {
+            'Content-Type': contentType,
+            'Cache-Control': 'public, max-age=86400',
+            'Access-Control-Allow-Origin': '*'
+          });
+          fs.createReadStream(assetPath).pipe(res);
           return;
         }
       }
