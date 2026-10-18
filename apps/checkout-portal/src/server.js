@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { generateQrSvg } from './qr.js';
+import { generateQrSvg } from '@youpi/core';
 import { getInternalServiceToken } from '@youpi/common';
 
 const __filename = fileURLToPath(import.meta.url);

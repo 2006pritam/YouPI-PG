@@ -9,7 +9,7 @@ import { AuditLogRepository } from '../packages/db/src/repositories/audit-log.re
 import { AttributionEngine } from '../packages/core/src/attribution-engine.js';
 import { QueueEngine } from '../packages/core/src/queue-engine.js';
 import { TimingEngine } from '../packages/core/src/timing-engine.js';
-import { generateQrSvg } from '../apps/checkout-portal/src/qr.js';
+import { generateQrSvg } from '@youpi/core';
 import {
   buildUpiUri,
   buildUpiIntentUri,

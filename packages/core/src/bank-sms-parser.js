@@ -12,7 +12,7 @@ export function extractIntelligentAmount(text) {
   if (!text || typeof text !== 'string') return null;
 
   // Pattern 1: Standard currency prefix (e.g. Rs 499, Rs. 499, ₹499, INR 499, Rs. 20.00, ₹1,200.50)
-  const prefixMatch = text.match(/(?:(?:rs\.?|inr)\b|₹)[\s:=-]*([\d,]+(?:\.\d{1,2})?)/i);
+  const prefixMatch = text.match(/(?:(?:rs\b\.?|inr\b)|₹)[\s:=-]*([\d,]+(?:\.\d{1,2})?)/i);
   if (prefixMatch && prefixMatch[1]) {
     const clean = prefixMatch[1].replace(/,/g, '');
     try {
@@ -21,7 +21,7 @@ export function extractIntelligentAmount(text) {
   }
 
   // Pattern 2: Standard currency suffix (e.g. 499 Rs, 499.00 INR, 20.00 Rs, 20rs, 500 inr)
-  const suffixMatch = text.match(/(?:^|[^\w.])([\d,]+(?:\.\d{1,2})?)[\s:=-]*(?:(?:rs\.?|inr)\b|₹)/i);
+  const suffixMatch = text.match(/(?:^|[^\w.])([\d,]+(?:\.\d{1,2})?)[\s:=-]*(?:(?:rs\b\.?|inr\b)|₹)/i);
   if (suffixMatch && suffixMatch[1]) {
     const clean = suffixMatch[1].replace(/,/g, '');
     try {
@@ -104,8 +104,8 @@ export class BankSmsParser {
     // 2. Extract Bank Reference / UTR / RRN
     let bankRef;
     const utrPatterns = [
-      /(?:upi\s*ref(?:erence)?\s*(?:no\.?|num)?|utr(?:\s*no\.?)?|rrn(?:\s*no\.?)?|txn\s*(?:id|ref)?|ref\s*no\.?)[\s:=-]+([a-zA-Z0-9]{6,25})/i,
-      /(?:ref\s*no\.?)?[\s:#=-]+([a-zA-Z0-9]{8,22})/i,
+      /(?:upi\s*ref(?:erence)?\s*(?:no\.?|num)?|utr(?:\s*no\.?)?|rrn(?:\s*no\.?)?|txn\s*(?:id|ref)?|ref\s*no\.?)[\s:=-]+([a-zA-Z0-9\-_]{6,35})/i,
+      /\b(?:ref(?:\s*(?:no\.?|id|#))?)[:\s#=-]+([a-zA-Z0-9\-_]{6,35})/i,
       /\b([0-9]{12})\b/
     ];
 
