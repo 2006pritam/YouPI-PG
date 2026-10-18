@@ -9,6 +9,8 @@ process.env.ADMIN_API_TOKEN = TEST_ADMIN_TOKEN;
 process.env.OBSERVER_API_TOKEN = TEST_OBSERVER_TOKEN;
 // Lets the OTP suites read the code from the response instead of WhatsApp.
 process.env.YOUPI_EXPOSE_DEV_OTP = 'true';
+// Webhook suites deliver to a local mock receiver on loopback, which the SSRF guard blocks by default.
+process.env.YOUPI_ALLOW_PRIVATE_WEBHOOKS = 'true';
 
 /** Admin bearer header, optionally merged with extra headers. */
 export function authHeaders(extra = {}) {
@@ -20,7 +22,7 @@ export function authFetch(url, init = {}) {
   return fetch(url, { ...init, headers: { ...authHeadersFor(url), ...(init.headers || {}) } });
 }
 
-const GUARDED = /\/api\/v1\/admin\/|\/api\/v1\/pollers\/events|\/simulate-observation/;
+const GUARDED = /\/api\/v1\/admin\/|\/api\/v1\/pollers\/events|\/api\/v1\/pollers\/active-window|\/simulate-observation/;
 
 /** Admin bearer header only for routes the gateway guards; other routes (customer auth etc.) get none. */
 export function authHeadersFor(path, extra = {}) {

@@ -3,9 +3,39 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getDatabase, MerchantRepository, SupportTicketRepository } from '@youpi/db';
+import { getAdminToken, safeEqual } from '@youpi/common';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/** Security headers applied to every response served by the merchant admin. */
+const BASE_SECURITY_HEADERS = Object.freeze({
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'SAMEORIGIN',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'; object-src 'none'"
+});
+
+/** True when the caller presented the admin bearer token in constant time. */
+function hasAdminToken(req) {
+  const match = /^Bearer\s+(.+)$/i.exec(req.headers?.['authorization'] || '');
+  if (!match) return false;
+  return safeEqual(match[1].trim(), getAdminToken());
+}
+
+/**
+ * Strips headers a browser must not be able to spoof when relaying to an internal service.
+ */
+function sanitizedForwardHeaders(req, targetHost) {
+  const headers = { ...req.headers, host: targetHost };
+  for (const name of Object.keys(headers)) {
+    const lower = name.toLowerCase();
+    if (lower === 'x-internal-render' || lower === 'x-internal-token') {
+      delete headers[name];
+    }
+  }
+  return headers;
+}
 
 // In production, reliably ensure environment variables from .env are loaded if not already provided
 if (!process.env.BASE_PAYMENT_API_URL && typeof process.loadEnvFile === 'function') {
@@ -70,30 +100,40 @@ export class AdminServer {
 
       // Admin Tickets API: GET /api/admin/tickets
       if (pathname === '/api/admin/tickets') {
+        if (!hasAdminToken(req)) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized', code: 'AUTH_REQUIRED' }));
+          return;
+        }
         const merchants = this.merchantRepo.findAll();
         const mId = merchants[0]?.id || '00000000-0000-0000-0000-000000000001';
         const tickets = this.ticketRepo.findTicketsByMerchant(mId);
 
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
+          'Access-Control-Allow-Origin': '*',
+          ...BASE_SECURITY_HEADERS
         });
         res.end(JSON.stringify(tickets));
         return;
       }
 
       // Merged Control Center Supervisor Proxy: /api/services/* and /api/logs/stream -> Control Center on port 8090
+      // Relaying this unauthenticated would republish process control and every service's
+      // stdout/stderr on the internet-facing admin host, so the admin token is required.
       if (pathname.startsWith('/api/services') || pathname === '/api/logs/stream') {
+        if (!hasAdminToken(req)) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized', code: 'AUTH_REQUIRED' }));
+          return;
+        }
         const ccPort = Number(process.env.CONTROL_CENTER_PORT || 8090);
         const proxyReq = http.request({
           hostname: '127.0.0.1',
           port: ccPort,
           path: req.url,
           method: req.method,
-          headers: {
-            ...req.headers,
-            host: `localhost:${ccPort}`
-          }
+          headers: sanitizedForwardHeaders(req, `localhost:${ccPort}`)
         }, (proxyRes) => {
           res.writeHead(proxyRes.statusCode, proxyRes.headers);
           proxyRes.pipe(res);
@@ -177,7 +217,8 @@ export class AdminServer {
         const html = this.renderHtml();
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-cache'
+          'Cache-Control': 'no-cache',
+          ...BASE_SECURITY_HEADERS
         });
         res.end(html);
         return;

@@ -2,6 +2,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { Database } from '@youpi/db';
+import { getAdminToken } from '@youpi/common';
 import { startAdminServer } from '../index.js';
 
 describe('Merchant Admin Integration Tests', () => {
@@ -20,9 +21,9 @@ describe('Merchant Admin Integration Tests', () => {
     testDb.close();
   });
 
-  function get(path) {
+  function get(path, headers = {}) {
     return new Promise((resolve, reject) => {
-      http.get(`${baseUrl}${path}`, res => {
+      http.get(`${baseUrl}${path}`, { headers }, res => {
         let data = '';
         res.on('data', chunk => { data += chunk; });
         res.on('end', () => {
@@ -54,8 +55,11 @@ describe('Merchant Admin Integration Tests', () => {
     assert.ok(res.text.includes('Gmail Direct API'));
   });
 
-  test('GET /api/admin/tickets returns tickets array', async () => {
-    const res = await get('/api/admin/tickets');
+  test('GET /api/admin/tickets requires the admin token', async () => {
+    const anonymous = await get('/api/admin/tickets');
+    assert.equal(anonymous.status, 401);
+
+    const res = await get('/api/admin/tickets', { Authorization: `Bearer ${getAdminToken()}` });
     assert.equal(res.status, 200);
     const json = JSON.parse(res.text);
     assert.ok(Array.isArray(json));

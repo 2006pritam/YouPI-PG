@@ -3979,7 +3979,7 @@
         const s = remainingSec % 60;
         content.innerHTML = `
         <div style="font-size:1.75rem; font-weight:800; color:#38bdf8;">₹${(Number(currentSlot.amountPaise) / 100).toFixed(2)}</div>
-        <div style="font-weight:700; margin:0.35rem 0;">Order #${currentSlot.orderId}</div>
+        <div style="font-weight:700; margin:0.35rem 0;">Order #${escapeHtml(currentSlot.orderId)}</div>
         <div class="badge badge-info">ACTIVE (⏱ ${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')} remaining)</div>
       `;
       } else {
@@ -3998,7 +3998,7 @@
         const remainingSec = currentSlot.processingExpiresAt ? Math.max(0, Math.ceil((new Date(currentSlot.processingExpiresAt).getTime() - Date.now()) / 1000)) : 0;
         content.innerHTML = `
         <div style="font-size:1.75rem; font-weight:800; color:#fbbf24;">₹${(Number(currentSlot.amountPaise) / 100).toFixed(2)}</div>
-        <div style="font-weight:700; margin:0.35rem 0;">Order #${currentSlot.orderId}</div>
+        <div style="font-weight:700; margin:0.35rem 0;">Order #${escapeHtml(currentSlot.orderId)}</div>
         <div class="badge badge-warning">VERIFYING (⏳ ${remainingSec}s remaining)</div>
       `;
       } else {
@@ -4017,7 +4017,7 @@
       tbody.innerHTML = queue.map(q => `
       <tr>
         <td><strong>#${q.queuePosition}</strong></td>
-        <td>Order #${q.orderId}</td>
+        <td>Order #${escapeHtml(q.orderId)}</td>
         <td>₹${(Number(q.amountPaise) / 100).toFixed(2)}</td>
         <td><span class="badge badge-warning">QUEUED</span></td>
         <td>${new Date(q.createdAt).toLocaleTimeString()}</td>
@@ -4096,7 +4096,7 @@
 
       tbody.innerHTML = pending.map(p => `
       <tr>
-        <td><strong>Order #${p.orderId}</strong></td>
+        <td><strong>Order #${escapeHtml(p.orderId)}</strong></td>
         <td><code style="font-size:0.75rem;">${p.id.substring(0, 16)}...</code></td>
         <td><strong style="color:#34d399; font-size:1.15rem;">₹${(Number(p.amountPaise) / 100).toFixed(2)}</strong></td>
         <td>
@@ -4174,7 +4174,7 @@
         }
         tbody.innerHTML = orders.map(o => `
         <tr>
-          <td><strong>Order #${o.orderId}</strong></td>
+          <td><strong>Order #${escapeHtml(o.orderId)}</strong></td>
           <td><code style="font-size:0.75rem;">${o.paymentId.substring(0, 16)}...</code></td>
           <td><strong style="color:#34d399; font-size:1.15rem;">₹${(Number(o.amountPaise) / 100).toFixed(2)}</strong></td>
           <td>${escapeHtml(o.customerName || 'Customer')}</td>
@@ -4215,7 +4215,7 @@
 
           return `
           <tr>
-            <td><strong>Order #${p.orderId}</strong></td>
+            <td><strong>Order #${escapeHtml(p.orderId)}</strong></td>
             <td><code>${p.id}</code></td>
             <td>₹${(Number(p.amountPaise) / 100).toFixed(2)}</td>
             <td>${p.method}</td>
@@ -4481,12 +4481,12 @@
         } else {
           actionBtns += `<button class="btn btn-secondary" style="padding:0.35rem 0.65rem; font-size:0.78rem; margin-right:0.4rem;" onclick="toggleVpa('${a.id}')">Deactivate</button>`;
         }
-        actionBtns += `<button class="btn btn-danger" style="padding:0.35rem 0.65rem; font-size:0.78rem;" onclick="deleteVpa('${a.id}', '${a.upiId}')">Delete</button>`;
+        actionBtns += `<button class="btn btn-danger" style="padding:0.35rem 0.65rem; font-size:0.78rem;" onclick="deleteVpa('${escapeHtml(a.id)}', '${escapeHtml(a.upiId)}')">Delete</button>`;
 
         return `
         <tr style="${a.isActive ? 'background:var(--primary-light);' : ''}">
-          <td><strong style="color:var(--text-heading);">${a.upiId}</strong></td>
-          <td>${a.payeeName}</td>
+          <td><strong style="color:var(--text-heading);">${escapeHtml(a.upiId)}</strong></td>
+          <td>${escapeHtml(a.payeeName)}</td>
           <td>${statusBadge}</td>
           <td>${slotBadge}</td>
           <td style="font-size:0.75rem; color:var(--text-muted);">${new Date(a.createdAt).toLocaleDateString()}</td>

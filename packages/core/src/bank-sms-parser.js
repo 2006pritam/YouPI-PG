@@ -77,7 +77,11 @@ export class BankSmsParser {
    * } | null}
    */
   static parse(sms) {
-    const text = (sms.text || '').trim();
+    // Bank credit SMS are short. Capping the text bounds the cost of the reference-extraction
+    // regexes, which are scanned from every start offset and would otherwise let one
+    // oversized message block the event loop (ReDoS / DoS).
+    const MAX_SCAN_CHARS = 4096;
+    const text = (sms.text || '').trim().slice(0, MAX_SCAN_CHARS);
     if (!text) return null;
 
     // Check if SMS represents an incoming credit
@@ -101,7 +105,7 @@ export class BankSmsParser {
     let bankRef;
     const utrPatterns = [
       /(?:upi\s*ref(?:erence)?\s*(?:no\.?|num)?|utr(?:\s*no\.?)?|rrn(?:\s*no\.?)?|txn\s*(?:id|ref)?|ref\s*no\.?)[\s:=-]+([a-zA-Z0-9]{6,25})/i,
-      /(?:ref(?:\s*no)?\s*[:#\s]?\s*)([a-zA-Z0-9]{8,22})/i,
+      /(?:ref\s*no\.?)?[\s:#=-]+([a-zA-Z0-9]{8,22})/i,
       /\b([0-9]{12})\b/
     ];
 

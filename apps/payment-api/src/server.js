@@ -1,6 +1,13 @@
 import http from 'node:http';
 import { URL } from 'node:url';
 
+/** Security headers applied to every response emitted by the gateway. */
+const BASE_SECURITY_HEADERS = Object.freeze({
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'X-Frame-Options': 'SAMEORIGIN'
+});
+
 /**
  * Lightweight, high-performance HTTP router and server with native SSE and CORS.
  */
@@ -86,7 +93,8 @@ export class HttpServer {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*'
+      'Access-Control-Allow-Origin': '*',
+      ...BASE_SECURITY_HEADERS
     });
 
     res.write('event: connected\ndata: {"status":"connected"}\n\n');
@@ -126,7 +134,8 @@ export class HttpServer {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, Idempotency-Key, X-Device-Id, X-Timestamp, X-Signature'
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, Idempotency-Key, X-Device-Id, X-Timestamp, X-Signature',
+      ...BASE_SECURITY_HEADERS
     });
     res.end(jsonStr);
   }
@@ -173,7 +182,8 @@ export class HttpServer {
         res.writeHead(204, {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization, Idempotency-Key, X-Device-Id, X-Timestamp, X-Signature'
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, Idempotency-Key, X-Device-Id, X-Timestamp, X-Signature',
+          ...BASE_SECURITY_HEADERS
         });
         res.end();
         return;
@@ -214,8 +224,9 @@ export class HttpServer {
             try {
               await route.handler(req, res, params);
             } catch (err) {
+              // Log the detail server-side; never echo stack/SQL text to an anonymous caller.
               console.error(`Route Error [${method} ${pathname}]:`, err);
-              HttpServer.json(res, 500, { error: err.message || 'Internal Server Error' });
+              HttpServer.json(res, 500, { error: 'Internal Server Error' });
             }
             return;
           }

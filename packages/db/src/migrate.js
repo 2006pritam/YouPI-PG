@@ -52,6 +52,7 @@ export function runMigrations(targetDb) {
   try { db.exec("ALTER TABLE customers ADD COLUMN mobile_number TEXT;"); } catch {}
   try { db.exec("ALTER TABLE customers ADD COLUMN otp_code TEXT;"); } catch {}
   try { db.exec("ALTER TABLE customers ADD COLUMN otp_expires_at TEXT;"); } catch {}
+  try { db.exec("ALTER TABLE customers ADD COLUMN otp_attempts INTEGER NOT NULL DEFAULT 0;"); } catch {}
   try { db.exec("ALTER TABLE customers ADD COLUMN is_phone_verified INTEGER DEFAULT 0;"); } catch {}
   try { db.exec("ALTER TABLE customers ADD COLUMN ban_reason TEXT;"); } catch {}
   try { db.exec("ALTER TABLE customers ADD COLUMN banned_at TEXT;"); } catch {}

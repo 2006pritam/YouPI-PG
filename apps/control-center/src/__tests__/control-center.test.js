@@ -1,8 +1,11 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { getAdminToken } from '@youpi/common';
 import { startControlCenter } from '../index.js';
 import { ProcessManager } from '../process-manager.js';
+
+const ADMIN_AUTH = { Authorization: `Bearer ${getAdminToken()}` };
 
 describe('Control Center Supervisor Integration Tests', () => {
   let ccInstance;
@@ -20,9 +23,9 @@ describe('Control Center Supervisor Integration Tests', () => {
     await ccInstance.close();
   });
 
-  function get(path) {
+  function get(path, headers = {}) {
     return new Promise((resolve, reject) => {
-      http.get(`${baseUrl}${path}`, res => {
+      http.get(`${baseUrl}${path}`, { headers }, res => {
         let data = '';
         res.on('data', chunk => { data += chunk; });
         res.on('end', () => {
@@ -38,9 +41,9 @@ describe('Control Center Supervisor Integration Tests', () => {
     });
   }
 
-  function post(path) {
+  function post(path, headers = {}) {
     return new Promise((resolve, reject) => {
-      const req = http.request(`${baseUrl}${path}`, { method: 'POST' }, res => {
+      const req = http.request(`${baseUrl}${path}`, { method: 'POST', headers }, res => {
         let data = '';
         res.on('data', chunk => { data += chunk; });
         res.on('end', () => {
@@ -74,8 +77,14 @@ describe('Control Center Supervisor Integration Tests', () => {
     assert.ok(res.body.includes('Real-Time Aggregate Terminal Logs'));
   });
 
+  test('process control routes require the admin token', async () => {
+    assert.equal((await get('/api/services')).status, 401);
+    assert.equal((await get('/api/logs/stream')).status, 401);
+    assert.equal((await post('/api/services/stop-all')).status, 401);
+  });
+
   test('GET /api/services enumerates all modular host services', async () => {
-    const res = await get('/api/services');
+    const res = await get('/api/services', ADMIN_AUTH);
     assert.equal(res.status, 200);
     assert.ok(Array.isArray(res.body));
     assert.equal(res.body.length, 6);
@@ -102,7 +111,7 @@ describe('Control Center Supervisor Integration Tests', () => {
   });
 
   test('CRITICAL INVARIANT: Stop All strictly stops child processes and NEVER terminates Control Center', async () => {
-    const res = await post('/api/services/stop-all');
+    const res = await post('/api/services/stop-all', ADMIN_AUTH);
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
 

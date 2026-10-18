@@ -3,9 +3,48 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateQrSvg } from './qr.js';
+import { getInternalServiceToken } from '@youpi/common';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/** Security headers applied to every response served by the portal. */
+const BASE_SECURITY_HEADERS = Object.freeze({
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'SAMEORIGIN',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'; object-src 'none'"
+});
+
+/**
+ * Escapes a value for interpolation into HTML text or attribute context.
+ * Order ids, merchant names and branding fields are attacker-influenced, so they must
+ * never be injected raw into the checkout template.
+ */
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+/**
+ * Strips hop-by-hop and spoofable internal headers before proxying to the payment core.
+ * Returns a shallow copy so the caller's request object is never mutated.
+ */
+function sanitizedForwardHeaders(req, targetHost) {
+  const headers = { ...req.headers, host: targetHost };
+  for (const name of Object.keys(headers)) {
+    const lower = name.toLowerCase();
+    // Never let a browser claim to be an internal renderer or replay a credential we issue.
+    if (lower === 'x-internal-render' || lower === 'x-internal-token') {
+      delete headers[name];
+    }
+  }
+  return headers;
+}
 
 // In production, reliably ensure environment variables from .env are loaded if not already provided
 if (!process.env.BASE_PAYMENT_API_URL && typeof process.loadEnvFile === 'function') {
@@ -48,8 +87,8 @@ export class CheckoutServer {
   async fetchPaymentState(paymentId) {
     try {
       const internalPort = process.env.PAYMENT_API_PORT || 6100;
-      const res = await fetch(`http://127.0.0.1:${internalPort}/api/v1/checkout/${paymentId}/state`, {
-        headers: { 'X-Internal-Render': 'true' }
+      const res = await fetch(`http://127.0.0.1:${internalPort}/api/v1/checkout/${encodeURIComponent(paymentId)}/state`, {
+        headers: { 'X-Internal-Render': 'true', 'X-Internal-Token': getInternalServiceToken() }
       });
       if (!res.ok) return null;
       return await res.json();
@@ -102,33 +141,41 @@ export class CheckoutServer {
     const downtimeAltBtnDisplay = ((sellingMode === 'ONLINE' && enabledMethods.includes('COD')) || (sellingMode === 'OFFLINE' && enabledMethods.includes('CASH_COUNTER'))) ? 'inline-block' : 'none';
     const downtimeAltBtnLabel = (sellingMode === 'ONLINE') ? 'Pay via Cash on Delivery Instead' : 'Pay by Cash at Till Instead';
 
-    html = html.replaceAll('{{PAYMENT_ID}}', paymentId);
+    // Everything interpolated below is derived from merchant-supplied or customer-supplied data
+    // (order ids, branding, payee names), so it is HTML-escaped. `{{INITIAL_STATE_JSON}}` is
+    // additionally guarded against `<` so it cannot terminate the inline script block.
+    html = html.replaceAll('{{PAYMENT_ID}}', escapeHtml(paymentId));
     html = html.replaceAll('{{API_BASE_URL}}', clientApiBase);
-    html = html.replaceAll('{{APP_NAME}}', appName);
-    html = html.replaceAll('{{PRIMARY_COLOR}}', primaryColor);
-    html = html.replaceAll('{{MERCHANT_NAME}}', merchantName);
-    html = html.replaceAll('{{ORDER_ID}}', orderId);
-    html = html.replaceAll('{{AMOUNT}}', state?.amount || '0.00');
-    html = html.replaceAll('{{VPA}}', vpa);
-    html = html.replaceAll('{{LOGO_URL}}', logoUrl);
-    html = html.replaceAll('{{SIDEBAR_NOTICE}}', sidebarNotice);
-    html = html.replaceAll('{{COUNTER_INSTRUCTIONS}}', counterInstructions);
-    html = html.replaceAll('{{SERVER_HEALTH_CLASS}}', healthClass);
-    html = html.replaceAll('{{SERVER_HEALTH_LABEL}}', healthLabel);
-    html = html.replaceAll('{{DOWNTIME_ALERT_STYLE}}', alertStyle);
-    html = html.replaceAll('{{DOWNTIME_ALERT_CLASS}}', alertClass);
-    html = html.replaceAll('{{DOWNTIME_HEADING}}', alertHeading);
-    html = html.replaceAll('{{DOWNTIME_MSG}}', alertMsg);
-    html = html.replaceAll('{{METHOD_SELECTOR_DISPLAY}}', showMethodBar);
-    html = html.replaceAll('{{TAB_COD_STYLE}}', tabCodStyle);
-    html = html.replaceAll('{{TAB_CASH_STYLE}}', tabCashStyle);
-    html = html.replaceAll('{{TAB_CARD_STYLE}}', tabCardStyle);
-    html = html.replaceAll('{{PC_COD_STYLE}}', pcCodStyle);
-    html = html.replaceAll('{{PC_CASH_STYLE}}', pcCashStyle);
-    html = html.replaceAll('{{PC_CARD_STYLE}}', pcCardStyle);
-    html = html.replaceAll('{{DOWNTIME_ALT_BTN_DISPLAY}}', downtimeAltBtnDisplay);
-    html = html.replaceAll('{{DOWNTIME_ALT_BTN_LABEL}}', downtimeAltBtnLabel);
-    html = html.replaceAll('{{INITIAL_STATE_JSON}}', JSON.stringify(state || {}).replaceAll('<', '\\u003c'));
+    html = html.replaceAll('{{APP_NAME}}', escapeHtml(appName));
+    html = html.replaceAll('{{PRIMARY_COLOR}}', escapeHtml(primaryColor));
+    html = html.replaceAll('{{MERCHANT_NAME}}', escapeHtml(merchantName));
+    html = html.replaceAll('{{ORDER_ID}}', escapeHtml(orderId));
+    html = html.replaceAll('{{AMOUNT}}', escapeHtml(state?.amount || '0.00'));
+    html = html.replaceAll('{{VPA}}', escapeHtml(vpa));
+    html = html.replaceAll('{{LOGO_URL}}', escapeHtml(logoUrl));
+    html = html.replaceAll('{{SIDEBAR_NOTICE}}', escapeHtml(sidebarNotice));
+    html = html.replaceAll('{{COUNTER_INSTRUCTIONS}}', escapeHtml(counterInstructions));
+    html = html.replaceAll('{{SERVER_HEALTH_CLASS}}', escapeHtml(healthClass));
+    html = html.replaceAll('{{SERVER_HEALTH_LABEL}}', escapeHtml(healthLabel));
+    html = html.replaceAll('{{DOWNTIME_ALERT_STYLE}}', escapeHtml(alertStyle));
+    html = html.replaceAll('{{DOWNTIME_ALERT_CLASS}}', escapeHtml(alertClass));
+    html = html.replaceAll('{{DOWNTIME_HEADING}}', escapeHtml(alertHeading));
+    html = html.replaceAll('{{DOWNTIME_MSG}}', escapeHtml(alertMsg));
+    html = html.replaceAll('{{METHOD_SELECTOR_DISPLAY}}', escapeHtml(showMethodBar));
+    html = html.replaceAll('{{TAB_COD_STYLE}}', escapeHtml(tabCodStyle));
+    html = html.replaceAll('{{TAB_CASH_STYLE}}', escapeHtml(tabCashStyle));
+    html = html.replaceAll('{{TAB_CARD_STYLE}}', escapeHtml(tabCardStyle));
+    html = html.replaceAll('{{PC_COD_STYLE}}', escapeHtml(pcCodStyle));
+    html = html.replaceAll('{{PC_CASH_STYLE}}', escapeHtml(pcCashStyle));
+    html = html.replaceAll('{{PC_CARD_STYLE}}', escapeHtml(pcCardStyle));
+    html = html.replaceAll('{{DOWNTIME_ALT_BTN_DISPLAY}}', escapeHtml(downtimeAltBtnDisplay));
+    html = html.replaceAll('{{DOWNTIME_ALT_BTN_LABEL}}', escapeHtml(downtimeAltBtnLabel));
+    html = html.replaceAll('{{INITIAL_STATE_JSON}}', JSON.stringify(state || {})
+      .replaceAll('<', '\\u003c')
+      .replaceAll('>', '\\u003e')
+      .replaceAll('&', '\\u0026')
+      .replaceAll('\u2028', '\\u2028')
+      .replaceAll('\u2029', '\\u2029'));
 
     return html;
   }
@@ -154,8 +201,7 @@ export class CheckoutServer {
           path: req.url,
           method: req.method,
           headers: {
-            ...req.headers,
-            host: `localhost:${targetPort}`,
+            ...sanitizedForwardHeaders(req, `localhost:${targetPort}`),
             'x-forwarded-host': req.headers.host || '',
             'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'https'
           }
@@ -227,7 +273,8 @@ export class CheckoutServer {
           'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
           'Pragma': 'no-cache',
           'Expires': '0',
-          'Access-Control-Allow-Origin': '*'
+          'Access-Control-Allow-Origin': '*',
+          ...BASE_SECURITY_HEADERS
         });
         res.end(svg);
         return;
@@ -240,13 +287,14 @@ export class CheckoutServer {
         const state = await this.fetchPaymentState(paymentId);
 
         const rendered = this.renderHtml(paymentId, state);
-        res.writeHead(200, {
-          'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
-          'Pragma': 'no-cache',
-          'Expires': '0',
-          'Access-Control-Allow-Origin': '*'
-        });
+res.writeHead(200, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+            'Access-Control-Allow-Origin': '*',
+            ...BASE_SECURITY_HEADERS
+          });
         res.end(rendered);
         return;
       }

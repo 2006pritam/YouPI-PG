@@ -120,7 +120,11 @@ export class PaymentVerificationPipeline {
   process(input) {
     const isTest = Boolean(input.isTest);
     const testModeActive = Boolean(input.testModeActive);
-    const rawText = (input.rawText || '').toString();
+    // Bank credit notifications are a few hundred bytes. Capping the text bounds the cost of
+    // the reference-extraction regexes below, which are scanned from every start offset and
+    // would otherwise let one oversized "observation" block the event loop (ReDoS / DoS).
+    const MAX_SCAN_CHARS = 16384;
+    const rawText = (input.rawText || '').toString().slice(0, MAX_SCAN_CHARS);
 
     // =========================================================================
     // [ STAGE 1 ]: Load + Normalize + Preserve Raw Evidence
@@ -220,6 +224,11 @@ export class PaymentVerificationPipeline {
 
     // 0. Resolve Payment Session and Customer Context early for security attribution
     let session = null;
+
+    // The VPA the credit actually landed on. Every fallback below is scoped by it so an
+    // observation can never be attributed to another merchant's in-flight session.
+    const observedVpa = ((rawText.match(/[a-zA-Z0-9._-]{2,64}@[a-zA-Z0-9._-]{2,32}/) || [])[0] || '').toLowerCase() || null;
+
     if (input.paymentSessionId) {
       session = this.sessionRepo.findById(input.paymentSessionId);
     } else if (input.receivingAccountId) {
@@ -235,23 +244,21 @@ export class PaymentVerificationPipeline {
         );
         if (row) session = this.sessionRepo.mapRow(row);
       }
-      // 2. If not found (e.g. observer sent dummy ID or account changed), find active session on merchant's active receiving account
-      if (!session) {
+      // 2. Otherwise resolve through the VPA named in the message. Scoping by VPA keeps the
+      //    lookup inside a single merchant; the previous gateway-wide "any active receiving
+      //    account" query could settle an unrelated merchant's live session.
+      if (!session && observedVpa) {
         const row = this.db.queryOne(`
           SELECT ps.* FROM payment_sessions ps
           JOIN payment_receiving_accounts ra ON ps.receiving_account_id = ra.id
-          WHERE ra.is_active = 1 AND ps.status IN ('ACTIVE', 'PROCESSING')
+          WHERE LOWER(ra.upi_id) = ? AND ps.status IN ('ACTIVE', 'PROCESSING')
           ORDER BY ps.created_at DESC LIMIT 1
-        `);
+        `, [observedVpa]);
         if (row) session = this.sessionRepo.mapRow(row);
       }
-      // 3. Fallback to any latest active or processing session
-      if (!session) {
-        const row = this.db.queryOne(
-          `SELECT * FROM payment_sessions WHERE status IN ('ACTIVE', 'PROCESSING') ORDER BY created_at DESC LIMIT 1`
-        );
-        if (row) session = this.sessionRepo.mapRow(row);
-      }
+      // 3. There is deliberately NO gateway-wide fallback. An observation that cannot be tied
+      //    to a specific receiving account must not be attributed to whichever session happens
+      //    to be in flight on another merchant's VPA.
     }
 
     let customer = null;
@@ -467,7 +474,7 @@ export class PaymentVerificationPipeline {
     let bankRef = null;
     const ref12Patterns = [
       /(?:upi\s*ref(?:erence)?\s*(?:no\.?|num)?|utr(?:\s*no\.?)?|rrn(?:\s*no\.?)?|txn\s*(?:id|ref)?|ref\s*no\.?)[\s:=-]+([0-9]{12})\b/i,
-      /(?:ref(?:\s*no)?\s*[:#\s]?\s*)([0-9]{12})\b/i,
+      /(?:ref\s*no\.?)?[\s:#=-]+([0-9]{12})\b/i,
       /\b([0-9]{12})\b/
     ];
     for (const pat of ref12Patterns) {
@@ -551,13 +558,22 @@ export class PaymentVerificationPipeline {
     let stage4;
 
     if (!session && parsedData?.amountPaise) {
-      const matchRow = this.db.queryOne(`
-        SELECT * FROM payment_sessions
-        WHERE status IN ('ACTIVE', 'PROCESSING') AND amount_paise = ?
-        ORDER BY created_at DESC LIMIT 1
-      `, [Number(parsedData.amountPaise)]);
-      if (matchRow) {
-        session = this.sessionRepo.mapRow(matchRow);
+      // Amount alone is not an identifier: two merchants can legitimately have an identical
+      // in-flight amount. Only fall back on amount when the VPA the credit landed on is known,
+      // and then only within that VPA's merchant.
+      const scopeByVpa = observedVpa || (parsedData.vpa ? String(parsedData.vpa).toLowerCase() : null);
+      if (scopeByVpa) {
+        const matchRow = this.db.queryOne(`
+          SELECT ps.* FROM payment_sessions ps
+          JOIN payment_receiving_accounts ra ON ps.receiving_account_id = ra.id
+          WHERE ps.status IN ('ACTIVE', 'PROCESSING')
+            AND ps.amount_paise = ?
+            AND LOWER(ra.upi_id) = ?
+          ORDER BY ps.created_at DESC LIMIT 1
+        `, [Number(parsedData.amountPaise), scopeByVpa]);
+        if (matchRow) {
+          session = this.sessionRepo.mapRow(matchRow);
+        }
       }
     }
 

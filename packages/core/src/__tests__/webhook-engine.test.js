@@ -1,6 +1,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import '../../../../scripts/test-support.js';
 import { Database, runMigrations, MerchantRepository, PaymentSessionRepository } from '@youpi/db';
 import { WebhookEngine } from '../webhook-engine.js';
 import { verifyHmac } from '@youpi/common';

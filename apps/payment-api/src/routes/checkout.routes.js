@@ -1,5 +1,5 @@
 import { HttpServer } from '../server.js';
-import { toRupeesString, buildUpiUri, PaymentStatus, PaymentMethod, UPI_PROVIDERS } from '@youpi/common';
+import { toRupeesString, buildUpiUri, PaymentStatus, PaymentMethod, UPI_PROVIDERS, isInternalServiceRequest } from '@youpi/common';
 import { validateSessionDeviceAccess } from '@youpi/core';
 
 /**
@@ -14,8 +14,9 @@ function checkSessionDeviceAccess(session, req, body = null, ctx = null) {
     return { allowed: true, boundDeviceId: session.deviceId, isTerminal: true };
   }
 
-  // Internal server-side HTML render calls bypass device blocking
-  if (req.headers['x-internal-render'] === 'true') {
+  // Only a co-located service holding the shared internal token may bypass device blocking.
+  // The `X-Internal-Render` flag on its own is attacker-controlled and proves nothing.
+  if (isInternalServiceRequest(req)) {
     return { allowed: true, boundDeviceId: session.deviceId };
   }
 
@@ -955,6 +956,14 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
+    // Cancelling releases the merchant's scarce UPI slot and ends a live payment, so it is
+    // subject to the same device-binding check as the other state-changing checkout actions.
+    // Without this, anyone holding a payment id could grief an in-flight checkout.
+    const deviceAccess = checkSessionDeviceAccess(session, req, null, ctx);
+    if (!deviceAccess.allowed) {
+      HttpServer.json(res, deviceAccess.statusCode || 409, deviceAccess.body);
+      return;
+    }
 
     const updated = ctx.timingEngine.handleCancel(params.id);
 

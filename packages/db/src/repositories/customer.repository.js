@@ -1,5 +1,8 @@
 import crypto from 'node:crypto';
-import { hashPassword, verifyPassword, normalizeEmail, normalizeMobile, isValidEmail, isValidMobile, isValidPassword } from '@youpi/common';
+import { hashPassword, verifyPassword, normalizeEmail, normalizeMobile, isValidEmail, isValidMobile, isValidPassword, safeEqual } from '@youpi/common';
+
+/** Wrong guesses tolerated per issued OTP before the challenge is burned. */
+const OTP_MAX_ATTEMPTS = 5;
 
 export class CustomerRepository {
   /**
@@ -194,7 +197,7 @@ export class CustomerRepository {
     if (!normalized) return null;
     const now = new Date().toISOString();
     this.db.execute(
-      'UPDATE customers SET otp_code = ?, otp_expires_at = ?, updated_at = ? WHERE mobile_number = ?',
+      'UPDATE customers SET otp_code = ?, otp_expires_at = ?, otp_attempts = 0, updated_at = ? WHERE mobile_number = ?',
       [otpCode, expiresAt, now, normalized]
     );
     return this.findByMobile(normalized);
@@ -202,6 +205,7 @@ export class CustomerRepository {
 
   /**
    * Verifies WhatsApp OTP for customer login/signup.
+   * Enforces a bounded attempt count per challenge and compares the code in constant time.
    * Clears the OTP and marks phone as verified on success.
    * @param {string} mobileNumber
    * @param {string} otpCode
@@ -212,7 +216,20 @@ export class CustomerRepository {
     if (!normalized || !otpCode) return null;
     const customer = this.findByMobile(normalized);
     if (!customer) return null;
-    if (!customer.otpCode || customer.otpCode !== String(otpCode).trim()) {
+
+    // A 6-digit code has a 10^6 keyspace and a 5 minute lifetime, so without an attempt
+    // budget it is brute-forceable online. Fail closed once the budget is spent.
+    const attempts = Number(customer.otpAttempts || 0);
+    if (attempts >= OTP_MAX_ATTEMPTS) return null;
+
+    const submitted = String(otpCode).trim();
+    // `!==` short-circuits on the first differing character; use a constant-time compare.
+    const matches = safeEqual(customer.otpCode || '', submitted);
+    if (!customer.otpCode || !matches) {
+      this.db.execute(
+        'UPDATE customers SET otp_attempts = ?, updated_at = ? WHERE id = ?',
+        [attempts + 1, new Date().toISOString(), customer.id]
+      );
       return null;
     }
     if (customer.otpExpiresAt && new Date() > customer.otpExpiresAt) {
@@ -221,7 +238,7 @@ export class CustomerRepository {
 
     const now = new Date().toISOString();
     this.db.execute(
-      'UPDATE customers SET otp_code = NULL, otp_expires_at = NULL, is_phone_verified = 1, last_login_at = ?, updated_at = ? WHERE id = ?',
+      'UPDATE customers SET otp_code = NULL, otp_expires_at = NULL, otp_attempts = 0, is_phone_verified = 1, last_login_at = ?, updated_at = ? WHERE id = ?',
       [now, now, customer.id]
     );
     return this.findById(customer.id);
@@ -593,6 +610,7 @@ export class CustomerRepository {
       passwordHash: row.password_hash,
       otpCode: row.otp_code || null,
       otpExpiresAt: row.otp_expires_at ? new Date(row.otp_expires_at) : null,
+      otpAttempts: Number(row.otp_attempts || 0),
       isPhoneVerified: Boolean(row.is_phone_verified),
       status: row.status,
       banReason: row.ban_reason || null,

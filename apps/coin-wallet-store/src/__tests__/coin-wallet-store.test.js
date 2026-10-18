@@ -1,5 +1,6 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import http from 'node:http';
 import { Database } from '@youpi/db';
 import { startServer as startPaymentApi } from '../../../payment-api/src/index.js';
@@ -32,6 +33,16 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
 
     storeBaseUrl = `http://localhost:${storeInstance.port}`;
   });
+
+  /** Headers the real gateway always sends with every signed delivery. */
+  function gatewayHeaders(payloadString, overrides = {}) {
+    return {
+      'X-Gateway-Signature': `sha256=${generateHmac(payloadString, storeSecret)}`,
+      'X-Gateway-Delivery-Id': crypto.randomUUID(),
+      'X-Gateway-Timestamp': Date.now().toString(),
+      ...overrides
+    };
+  }
 
   after(async () => {
     await storeInstance.close();
@@ -120,13 +131,10 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     };
 
     const payloadString = JSON.stringify(payloadObj);
-    const signature = generateHmac(payloadString, storeSecret);
 
     const hookRes = await request('/api/webhook', {
       method: 'POST',
-      headers: {
-        'X-Gateway-Signature': `sha256=${signature}`
-      },
+      headers: gatewayHeaders(payloadString),
       body: payloadString
     });
 
@@ -147,14 +155,12 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     const payloadString = JSON.stringify({ event: 'SUCCESS', orderId: 'FAKE' });
     const hookRes = await request('/api/webhook', {
       method: 'POST',
-      headers: {
-        'X-Gateway-Signature': 'sha256=invalid_fake_signature_hash'
-      },
+      headers: gatewayHeaders(payloadString, { 'X-Gateway-Signature': 'sha256=invalid_fake_signature_hash' }),
       body: payloadString
     });
 
-    assert.equal(hookRes.status, 400);
-    assert.ok(hookRes.body.error.includes('signature mismatch'));
+    assert.equal(hookRes.status, 401);
+    assert.ok(hookRes.body.error.includes('signature'));
   });
 
   test('GET /wallet renders wallet page with updated balance', async () => {
@@ -201,11 +207,10 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     };
 
     const payloadString = JSON.stringify(payloadObj);
-    const signature = generateHmac(payloadString, storeSecret);
 
     const hookRes = await request('/api/webhook', {
       method: 'POST',
-      headers: { 'X-Gateway-Signature': `sha256=${signature}` },
+      headers: gatewayHeaders(payloadString),
       body: payloadString
     });
 
@@ -240,11 +245,10 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
       metadata: { coins: 1, packName: 'Micro Top-Up' }
     };
     const payloadString = JSON.stringify(payloadObj);
-    const signature = generateHmac(payloadString, storeSecret);
 
     const hookRes = await request('/api/webhook', {
       method: 'POST',
-      headers: { 'X-Gateway-Signature': `sha256=${signature}` },
+      headers: gatewayHeaders(payloadString),
       body: payloadString
     });
 

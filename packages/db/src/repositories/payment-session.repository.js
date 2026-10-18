@@ -459,6 +459,27 @@ export class PaymentSessionRepository {
       const session = this.findById(sessionId);
       if (!session) throw new Error(`Payment session not found: ${sessionId}`);
 
+      // A dead outcome is final. recordVerificationSource is called from the attribution engine
+      // on previously attributed sessions with no status check, so without this guard an
+      // out-of-window or duplicated observation flips an EXPIRED/FAILED/CANCELLED session back
+      // to SUCCESS and emits a webhook for a payment that was never settled.
+      // An already-SUCCESS session is NOT blocked: recording a second channel there is the
+      // legitimate SMS+Gmail verification upgrade, which must not re-emit SUCCESS.
+      const DEAD_STATES = [
+        PaymentStatus.FAILED,
+        PaymentStatus.EXPIRED,
+        PaymentStatus.CANCELLED
+      ];
+      if (DEAD_STATES.includes(session.status)) {
+        return {
+          session,
+          level: session.verificationLevel || 0,
+          sources: session.verificationSources || [],
+          tag: session.verificationTag || 'UNVERIFIED',
+          isFirstSuccess: false
+        };
+      }
+
       // Read current verification sources
       const sourcesSet = new Set(session.verificationSources || []);
       sourcesSet.add(source);

@@ -1,6 +1,11 @@
 import crypto from 'node:crypto';
 import { HttpServer } from '../server.js';
-import { normalizeEmail, normalizeMobile, isValidEmail, isValidMobile, isValidPassword } from '@youpi/common';
+import { normalizeEmail, normalizeMobile, isValidEmail, isValidMobile, isValidPassword, safeEqual } from '@youpi/common';
+
+/** Wrong guesses tolerated per issued OTP challenge. */
+const OTP_MAX_ATTEMPTS = 5;
+/** Minimum gap between OTP requests for the same mobile number. */
+const OTP_RESEND_COOLDOWN_MS = 30 * 1000;
 
 /**
  * Registers gateway-owned customer identity and session routes.
@@ -34,6 +39,23 @@ export function registerCustomerRoutes(server, ctx) {
 
   // Pending signup challenges cache: mobileNumber -> { otpCode, expiresAt, name, email }
   const pendingOtpChallenges = new Map();
+
+  // Throttles OTP dispatch per mobile number so the WhatsApp channel cannot be flooded/cost-abused.
+  const otpRequestLog = new Map();
+
+  /**
+   * Records an OTP request and reports whether the caller is within the resend cooldown.
+   * Entries older than the cooldown are pruned on each call.
+   */
+  function isOtpThrottled(mobile) {
+    const now = Date.now();
+    for (const [key, at] of otpRequestLog) {
+      if (now - at > OTP_RESEND_COOLDOWN_MS) otpRequestLog.delete(key);
+    }
+    if (otpRequestLog.has(mobile)) return true;
+    otpRequestLog.set(mobile, now);
+    return false;
+  }
 
   // Helper to get Berry Service
   function getBerry() {
@@ -94,6 +116,13 @@ export function registerCustomerRoutes(server, ctx) {
 
     const existingUser = ctx.customerRepo.findByMobile(cleanMobile);
 
+    // Throttle before doing any work: otherwise this endpoint can be used to flood a
+    // customer's WhatsApp with OTPs (harassment) or burn merchant messaging credits.
+    if (isOtpThrottled(cleanMobile)) {
+      HttpServer.json(res, 429, { error: `Please wait ${Math.ceil(OTP_RESEND_COOLDOWN_MS / 1000)} seconds before requesting another code.` });
+      return;
+    }
+
     // If new user signing up, validate name and email
     if (!existingUser && isNewUser) {
       if (!name) {
@@ -122,6 +151,7 @@ export function registerCustomerRoutes(server, ctx) {
       pendingOtpChallenges.set(cleanMobile, {
         otpCode,
         expiresAt,
+        attempts: 0,
         name: name || `Customer ${cleanMobile.slice(-4)}`,
         email: email || `${cleanMobile}@customer.youpi.local`
       });
@@ -190,7 +220,14 @@ export function registerCustomerRoutes(server, ctx) {
         HttpServer.json(res, 400, { error: 'No active OTP request found. Please request a new OTP.' });
         return;
       }
-      if (pending.otpCode !== otp) {
+      // Budget the guesses: a 6-digit code is brute-forceable within its window otherwise.
+      if ((pending.attempts || 0) >= OTP_MAX_ATTEMPTS) {
+        pendingOtpChallenges.delete(cleanMobile);
+        HttpServer.json(res, 429, { error: 'Too many incorrect attempts. Please request a new OTP.' });
+        return;
+      }
+      if (!safeEqual(pending.otpCode, otp)) {
+        pending.attempts = (pending.attempts || 0) + 1;
         HttpServer.json(res, 400, { error: 'Invalid verification code. Please check and try again.' });
         return;
       }

@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS customers (
     password_hash TEXT,
     otp_code TEXT,
     otp_expires_at TEXT,
+    otp_attempts INTEGER NOT NULL DEFAULT 0,
     is_phone_verified INTEGER DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'ACTIVE',
     last_login_at TEXT,

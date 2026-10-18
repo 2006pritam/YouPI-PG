@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { HttpServer } from '../server.js';
-import { PaymentStatus, PaymentMethod, SellingMode, AuditActorType, isValidVpa, toRupeesString, deriveCloudflareRoutes, resolveRuntimeUrls, resolveGmailRedirectUri, createOAuthState } from '@youpi/common';
+import { PaymentStatus, PaymentMethod, SellingMode, AuditActorType, isValidVpa, toRupeesString, deriveCloudflareRoutes, resolveRuntimeUrls, resolveGmailRedirectUri, createOAuthState, validateOutboundWebhookUrl } from '@youpi/common';
 import { PaymentVerificationPipeline } from '@youpi/core';
 import { globalTunnelManager } from '../services/tunnel-manager.js';
 import { formatQrDataUrl } from '../services/whatsapp-berry.service.js';
@@ -712,6 +712,11 @@ export function registerAdminRoutes(server, ctx) {
       updates.businessName = body.businessName.trim();
     }
     if (body.webhookUrl !== undefined) {
+      const check = validateOutboundWebhookUrl(body.webhookUrl);
+      if (!check.valid && String(body.webhookUrl || '').trim()) {
+        HttpServer.json(res, 400, { error: check.error });
+        return;
+      }
       updates.webhookUrl = body.webhookUrl?.trim() || null;
     }
     if (body.webhookSecret !== undefined && body.webhookSecret.trim()) {
@@ -910,8 +915,14 @@ export function registerAdminRoutes(server, ctx) {
     const updates = {};
     if (body.businessName && body.businessName.trim()) updates.businessName = body.businessName.trim();
     else if (inputBranding.businessName && inputBranding.businessName.trim()) updates.businessName = inputBranding.businessName.trim();
-    if (body.webhookUrl !== undefined) updates.webhookUrl = body.webhookUrl?.trim() || null;
-    else if (inputBranding.webhookUrl !== undefined) updates.webhookUrl = inputBranding.webhookUrl?.trim() || null;
+    if (body.webhookUrl !== undefined) {
+      const check = validateOutboundWebhookUrl(body.webhookUrl);
+      if (!check.valid && String(body.webhookUrl || '').trim()) {
+        HttpServer.json(res, 400, { error: check.error });
+        return;
+      }
+      updates.webhookUrl = body.webhookUrl?.trim() || null;
+    } else if (inputBranding.webhookUrl !== undefined) updates.webhookUrl = inputBranding.webhookUrl?.trim() || null;
     if (body.webhookSecret !== undefined && body.webhookSecret.trim()) updates.webhookSecret = body.webhookSecret.trim();
 
     if (

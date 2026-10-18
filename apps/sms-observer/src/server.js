@@ -61,6 +61,11 @@ export class SmsObserverServer {
 
       // POST /api/browser/auto-ensure
       if (pathname === '/api/browser/auto-ensure' && method === 'POST') {
+        if (!hasBearer(req, getObserverToken(), getAdminToken())) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized', code: 'AUTH_REQUIRED' }));
+          return;
+        }
         try {
           const result = await this.automator.autoEnsureConnection();
           res.writeHead(200, {
@@ -77,6 +82,11 @@ export class SmsObserverServer {
 
       // POST /api/browser/launch-pairing
       if (pathname === '/api/browser/launch-pairing' && req.method === 'POST') {
+        if (!hasBearer(req, getObserverToken(), getAdminToken())) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized', code: 'AUTH_REQUIRED' }));
+          return;
+        }
         try {
           const result = this.automator.launchPairingWindow();
           res.writeHead(200, {
@@ -93,6 +103,11 @@ export class SmsObserverServer {
 
       // POST /api/sweep (Active sweep trigger during 30-second verification window)
       if (pathname === '/api/sweep' && method === 'POST') {
+        if (!hasBearer(req, getObserverToken(), getAdminToken())) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized', code: 'AUTH_REQUIRED' }));
+          return;
+        }
         try {
           await this.automator.pollRecentMessages();
           res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });

@@ -167,15 +167,19 @@ export class AttributionEngine {
       }
     }
     if (!currentSession) {
-      // Fallback: Check if there is an ACTIVE or PROCESSING session matching this exact amount anywhere on the gateway
-      const anyActive = this.sessionRepo.db.queryOne(`
+      // Fallback: match the amount, but only inside the receiving account the observer
+      // reported. Matching "any ACTIVE session on the gateway with this amount" could settle a
+      // different merchant's live payment (cross-merchant hijack), so it is intentionally gone.
+      const scopedRow = this.sessionRepo.db.queryOne(`
         SELECT * FROM payment_sessions
-        WHERE status IN ('ACTIVE', 'PROCESSING') AND amount_paise = ?
+        WHERE receiving_account_id = ?
+          AND status IN ('ACTIVE', 'PROCESSING')
+          AND amount_paise = ?
         ORDER BY created_at DESC
         LIMIT 1
-      `, [Number(normalizedObs.amountPaise)]);
-      if (anyActive) {
-        currentSession = this.sessionRepo.mapRow(anyActive);
+      `, [normalizedObs.receivingAccountId, Number(normalizedObs.amountPaise)]);
+      if (scopedRow) {
+        currentSession = this.sessionRepo.mapRow(scopedRow);
       }
     }
 

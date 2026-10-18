@@ -46,7 +46,15 @@ export class GmailObserverServer {
       }
 
       // POST /stop
+      // This service is published publicly (Google must reach /oauth/callback), so stopping the
+      // poller must not be reachable by an anonymous caller: it silently disables the bank-email
+      // verification channel and prevents live payments from settling.
       if (pathname === '/stop' && method === 'POST') {
+        if (!hasBearer(req, getObserverToken(), getAdminToken())) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized', code: 'AUTH_REQUIRED' }));
+          return;
+        }
         this.poller.stop();
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, message: 'Gmail poller stopped' }));
@@ -381,6 +389,11 @@ export class GmailObserverServer {
 
       // POST /api/browser/auto-ensure
       if (pathname === '/api/browser/auto-ensure' && method === 'POST') {
+        if (!hasBearer(req, getObserverToken(), getAdminToken())) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized', code: 'AUTH_REQUIRED' }));
+          return;
+        }
         try {
           const result = await this.automator.autoEnsureConnection();
           res.writeHead(200, {
@@ -397,6 +410,11 @@ export class GmailObserverServer {
 
       // POST /api/browser/launch-login
       if (pathname === '/api/browser/launch-login' && req.method === 'POST') {
+        if (!hasBearer(req, getObserverToken(), getAdminToken())) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized', code: 'AUTH_REQUIRED' }));
+          return;
+        }
         try {
           const result = this.automator.launchLoginWindow();
           res.writeHead(200, {
@@ -413,6 +431,11 @@ export class GmailObserverServer {
 
       // POST /api/sweep (Active sweep trigger during 30-second verification window)
       if (pathname === '/api/sweep' && req.method === 'POST') {
+        if (!hasBearer(req, getObserverToken(), getAdminToken())) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized', code: 'AUTH_REQUIRED' }));
+          return;
+        }
         try {
           await Promise.allSettled([
             this.automator.pollInboxEmails().catch(() => {}),
