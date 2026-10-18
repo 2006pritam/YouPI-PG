@@ -80,6 +80,37 @@ function checkSessionDeviceAccess(session, req, body = null, ctx = null) {
 }
 
 /**
+ * Allowlist-based sanitizer for customer-facing branding (Issue #23).
+ * Prevents internal credentials (gmailConfig, cloudflareTunnelCommand, tokens) from leaking to public checkouts.
+ */
+function sanitizePublicBranding(raw = {}) {
+  // Explicitly remove secret credentials and internal configs (Issue #23)
+  const {
+    gmailConfig,
+    cloudflareTunnelCommand,
+    tunnelToken,
+    webhookSecret,
+    adminToken,
+    ...safeProps
+  } = raw;
+
+  return {
+    appName: safeProps.appName || 'YOUPI PG',
+    primaryColor: safeProps.primaryColor || '#2563eb',
+    headerTheme: safeProps.headerTheme || 'gradient',
+    logoUrl: safeProps.logoUrl || null,
+    counterInstructions: safeProps.counterInstructions || 'Please visit the billing counter and present this screen to the cashier.',
+    cardCounterInstructions: safeProps.cardCounterInstructions || 'Please swipe, insert, or tap your credit or debit card on the store POS terminal at the billing desk.',
+    supportEmails: safeProps.supportEmails || [],
+    supportMobiles: safeProps.supportMobiles || [],
+    privacyPolicyUrl: safeProps.privacyPolicyUrl || null,
+    sellingMode: safeProps.sellingMode || 'ONLINE',
+    customCss: safeProps.customCss || null,
+    ...safeProps
+  };
+}
+
+/**
  * Registers customer checkout portal routes.
  * @param {HttpServer} server
  * @param {{
@@ -367,11 +398,7 @@ export function registerCheckoutRoutes(server, ctx) {
     // Terminal session handling: if session is terminal, return terminal state directly (CASE 4)
     if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
       const merchant = ctx.merchantRepo.findById(session.merchantId);
-      const branding = {
-        appName: 'YOUPI PG',
-        primaryColor: '#2563eb',
-        ...(merchant?.branding || {})
-      };
+      const branding = sanitizePublicBranding(merchant?.branding || {});
       HttpServer.json(res, 200, {
         id: session.id,
         paymentId: session.id,
@@ -407,11 +434,12 @@ export function registerCheckoutRoutes(server, ctx) {
       receivingAccount = ctx.accountRepo.findActiveForMerchant(session.merchantId);
     }
 
-    const payeeVpa = receivingAccount?.upiId || snapshot?.upiId || null;
-    const payeeName = receivingAccount?.payeeName || snapshot?.payeeName || merchant?.businessName || 'Merchant Store';
-    const isMerchantEnabled = receivingAccount
-      ? Boolean(receivingAccount.isMerchantEnabled)
-      : (snapshot?.isMerchantEnabled !== undefined ? Boolean(snapshot.isMerchantEnabled) : true);
+    // Invariant: Prefer immutable session snapshot VPA to prevent live VPA mutations from altering open checkout sessions (Issue #27)
+    const payeeVpa = snapshot?.upiId || receivingAccount?.upiId || null;
+    const payeeName = snapshot?.payeeName || receivingAccount?.payeeName || merchant?.businessName || 'Merchant Store';
+    const isMerchantEnabled = (snapshot?.isMerchantEnabled !== undefined)
+      ? Boolean(snapshot.isMerchantEnabled)
+      : (receivingAccount ? Boolean(receivingAccount.isMerchantEnabled) : true);
     const upiMode = isMerchantEnabled ? 'MERCHANT' : 'NON_MERCHANT';
 
     let timeRemainingSeconds = 0;
@@ -441,27 +469,14 @@ export function registerCheckoutRoutes(server, ctx) {
       }
     }
 
-    const branding = {
-      appName: 'YOUPI PG',
-      primaryColor: '#2563eb',
-      headerTheme: 'gradient',
-      logoUrl: null,
-      counterInstructions: 'Please visit the billing counter and present this screen to the cashier.',
-      cardCounterInstructions: 'Please swipe, insert, or tap your credit or debit card on the store POS terminal at the billing desk.',
-      ...(merchant?.branding || {})
-    };
-
-    const supportEmails = branding.supportEmails || (merchant?.contactEmail ? [merchant.contactEmail] : []);
-    const supportMobiles = branding.supportMobiles || (merchant?.contactPhone ? [merchant.contactPhone] : []);
-    const privacyPolicyUrl = branding.privacyPolicyUrl || null;
-    branding.supportEmails = supportEmails;
-    branding.supportMobiles = supportMobiles;
-    const isCounterSession = session.method === 'CASH_COUNTER' || session.method === 'CARD_COUNTER';
     const merchantBranding = merchant?.branding || {};
+    const isCounterSession = session.method === 'CASH_COUNTER' || session.method === 'CARD_COUNTER';
     const sellingMode = merchantBranding.sellingMode || (isCounterSession ? 'OFFLINE' : 'ONLINE');
-    branding.sellingMode = sellingMode;
+    const supportEmails = merchantBranding.supportEmails || (merchant?.contactEmail ? [merchant.contactEmail] : []);
+    const supportMobiles = merchantBranding.supportMobiles || (merchant?.contactPhone ? [merchant.contactPhone] : []);
+    const privacyPolicyUrl = merchantBranding.privacyPolicyUrl || null;
 
-    let rawEnabled = merchantBranding.enabledPaymentMethods || (sellingMode === 'ONLINE' ? ['UPI', 'COD'] : ['UPI', 'CASH_COUNTER', 'CARD_COUNTER']);
+    let rawEnabled = merchantBranding.enabledPaymentMethods || (sellingMode === 'ONLINE' ? ['UPI'] : ['UPI', 'CASH_COUNTER', 'CARD_COUNTER']);
     let enabledMethods = ['UPI'];
     if (sellingMode === 'ONLINE') {
       if (rawEnabled.includes('COD')) {
@@ -475,6 +490,15 @@ export function registerCheckoutRoutes(server, ctx) {
         enabledMethods.push('CARD_COUNTER');
       }
     }
+
+    const branding = sanitizePublicBranding({
+      ...merchantBranding,
+      sellingMode,
+      supportEmails,
+      supportMobiles,
+      privacyPolicyUrl,
+      enabledPaymentMethods: enabledMethods
+    });
 
     const authHeader = req.headers['authorization'] || '';
     const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : (req.headers['x-customer-token'] || null);
@@ -1224,7 +1248,7 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
-    const rawEnabled = branding.enabledPaymentMethods || ['UPI', 'COD'];
+    const rawEnabled = branding.enabledPaymentMethods || ['UPI'];
     if (!rawEnabled.includes('COD')) {
       HttpServer.json(res, 400, { error: 'Cash on Delivery is currently disabled by merchant.' });
       return;
