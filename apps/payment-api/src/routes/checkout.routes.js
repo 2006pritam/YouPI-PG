@@ -84,29 +84,30 @@ function checkSessionDeviceAccess(session, req, body = null, ctx = null) {
  * Prevents internal credentials (gmailConfig, cloudflareTunnelCommand, tokens) from leaking to public checkouts.
  */
 function sanitizePublicBranding(raw = {}) {
-  // Explicitly remove secret credentials and internal configs (Issue #23)
-  const {
-    gmailConfig,
-    cloudflareTunnelCommand,
-    tunnelToken,
-    webhookSecret,
-    adminToken,
-    ...safeProps
-  } = raw;
-
+  // Strict explicit allowlist to prevent arbitrary internal metadata leaks (CWE-200 / OWASP A01)
   return {
-    appName: safeProps.appName || 'YOUPI PG',
-    primaryColor: safeProps.primaryColor || '#2563eb',
-    headerTheme: safeProps.headerTheme || 'gradient',
-    logoUrl: safeProps.logoUrl || null,
-    counterInstructions: safeProps.counterInstructions || 'Please visit the billing counter and present this screen to the cashier.',
-    cardCounterInstructions: safeProps.cardCounterInstructions || 'Please swipe, insert, or tap your credit or debit card on the store POS terminal at the billing desk.',
-    supportEmails: safeProps.supportEmails || [],
-    supportMobiles: safeProps.supportMobiles || [],
-    privacyPolicyUrl: safeProps.privacyPolicyUrl || null,
-    sellingMode: safeProps.sellingMode || 'ONLINE',
-    customCss: safeProps.customCss || null,
-    ...safeProps
+    appName: raw.appName || 'YOUPI PG',
+    primaryColor: raw.primaryColor || '#2563eb',
+    headerTheme: raw.headerTheme || 'gradient',
+    logoUrl: raw.logoUrl || null,
+    counterInstructions: raw.counterInstructions || 'Please visit the billing counter and present this screen to the cashier.',
+    cardCounterInstructions: raw.cardCounterInstructions || 'Please swipe, insert, or tap your credit or debit card on the store POS terminal at the billing desk.',
+    supportEmails: Array.isArray(raw.supportEmails) ? raw.supportEmails : [],
+    supportMobiles: Array.isArray(raw.supportMobiles) ? raw.supportMobiles : [],
+    privacyPolicyUrl: raw.privacyPolicyUrl || null,
+    termsUrl: raw.termsUrl || null,
+    sellingMode: raw.sellingMode || 'ONLINE',
+    customCss: raw.customCss || null,
+    enabledPaymentMethods: Array.isArray(raw.enabledPaymentMethods) ? raw.enabledPaymentMethods : ['UPI'],
+    sidebarNotice: raw.sidebarNotice || undefined,
+    checkoutNotice: raw.checkoutNotice || undefined,
+    footerGuarantee: raw.footerGuarantee || undefined,
+    trustBadgeText: raw.trustBadgeText || undefined,
+    hideTrustBadge: raw.hideTrustBadge !== undefined ? Boolean(raw.hideTrustBadge) : undefined,
+    subbannerText: raw.subbannerText || undefined,
+    hideSubbanner: raw.hideSubbanner !== undefined ? Boolean(raw.hideSubbanner) : undefined,
+    hidePoweredBy: raw.hidePoweredBy !== undefined ? Boolean(raw.hidePoweredBy) : undefined,
+    hideTimeSavingBanner: raw.hideTimeSavingBanner !== undefined ? Boolean(raw.hideTimeSavingBanner) : undefined
   };
 }
 
