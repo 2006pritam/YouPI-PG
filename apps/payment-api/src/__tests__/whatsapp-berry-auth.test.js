@@ -6,7 +6,7 @@ import { authFetch } from '../../../../scripts/test-support.js';
 
 test('WhatsApp Berry Protocol OTP Customer Auth & Merchant Configuration Suite', async (t) => {
   const customDb = new Database({ inMemory: true });
-  const app = createPaymentApp(customDb);
+  const app = createPaymentApp(customDb, { otpCooldownMs: 0 });
   const testPort = 6288;
 
   const serverInstance = await new Promise(resolve => {
