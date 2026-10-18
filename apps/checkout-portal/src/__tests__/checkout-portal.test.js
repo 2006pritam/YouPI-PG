@@ -2,7 +2,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { startCheckoutServer } from '../index.js';
-import { generateQrMatrix, generateQrSvg } from '../qr.js';
+import { generateQrMatrix, generateQrSvg } from '@youpi/core';
 
 describe('Checkout Portal Integration Tests', () => {
   let serverInstance;
