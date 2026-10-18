@@ -105,7 +105,7 @@ async function run() {
     height: 800,
     filename: 'gateway_pc_checkout.png',
     evalFn: () => {
-      activeCustomer = { id: 'demo-cust', name: 'Gaurav Sharma', mobileNumber: '9212339720' };
+      activeCustomer = { id: 'demo-cust', name: 'Demo Customer', mobileNumber: '9000000000' };
       setGatewayAuthMode(false);
       hideAllContent();
       const upiContent = document.getElementById('viewUpiContent');
@@ -132,7 +132,7 @@ async function run() {
     height: 880,
     filename: 'gateway_mobile_checkout.png',
     evalFn: () => {
-      activeCustomer = { id: 'demo-cust', name: 'Gaurav Sharma', mobileNumber: '9212339720' };
+      activeCustomer = { id: 'demo-cust', name: 'Demo Customer', mobileNumber: '9000000000' };
       setGatewayAuthMode(false);
       hideAllContent();
       const upiContent = document.getElementById('viewUpiContent');

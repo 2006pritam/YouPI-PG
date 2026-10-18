@@ -28,3 +28,12 @@ const GUARDED = /\/api\/v1\/admin\/|\/api\/v1\/pollers\/events|\/api\/v1\/poller
 export function authHeadersFor(path, extra = {}) {
   return GUARDED.test(String(path)) ? authHeaders(extra) : { ...extra };
 }
+
+/**
+ * Merchant-scoped header proving ownership of a payment session. `GET /api/v1/payments/:id`
+ * only returns merchant-private fields (metadata, verification internals, internalStatus)
+ * to a caller presenting the owning merchant's webhook secret.
+ */
+export function merchantHeaders(webhookSecret, extra = {}) {
+  return { 'X-Merchant-Key': webhookSecret, ...extra };
+}

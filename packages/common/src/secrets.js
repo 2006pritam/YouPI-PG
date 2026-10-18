@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { encrypt, decrypt } from './crypto.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Resolved from this file, not cwd: every service must read the same files.
@@ -67,6 +68,66 @@ export function isInternalServiceRequest(req) {
 
 /** Literal that older builds seeded into databases; must never be trusted. */
 export const LEGACY_DEFAULT_WEBHOOK_SECRET = 'merchant_webhook_secret_for_wallet_store';
+
+/**
+ * Master key for encrypting data at rest (merchant webhook secrets, OTPs).
+ * Generated once and persisted alongside the other local secrets.
+ */
+export const getEncryptionMasterKey = () => resolveSecret('encryption_master_key', 'ENCRYPTION_MASTER_KEY');
+
+/** Envelope prefix marking a stored value as AES-256-GCM ciphertext. */
+const ENC_PREFIX = 'enc:v1:';
+
+/** True when a stored value is in the ciphertext envelope. */
+export function isEncryptedValue(value) {
+  return typeof value === 'string' && value.startsWith(ENC_PREFIX);
+}
+
+/**
+ * Encrypts a value for storage. Values are idempotent: an already-encrypted value is
+ * returned unchanged so callers can wrap reads and writes without tracking state.
+ */
+export function encryptAtRest(plaintext) {
+  if (plaintext === null || plaintext === undefined || plaintext === '') return plaintext;
+  if (isEncryptedValue(plaintext)) return plaintext;
+  return ENC_PREFIX + encrypt(String(plaintext), getEncryptionMasterKey());
+}
+
+/**
+ * Decrypts a stored value, transparently passing through values written before encryption
+ * existed (plaintext) so existing databases keep working and get re-encrypted on next write.
+ */
+export function decryptAtRest(stored) {
+  if (!isEncryptedValue(stored)) return stored;
+  try {
+    return decrypt(stored.slice(ENC_PREFIX.length), getEncryptionMasterKey());
+  } catch {
+    // A value encrypted under a different/lost key must not silently become plaintext.
+    return null;
+  }
+}
+
+/**
+ * Keyed digest for high-entropy secrets that are only ever looked up, never read back
+ * (session tokens, device tokens). Unlike a plain hash this is not brute-forceable from a
+ * database dump, because the key lives outside the database.
+ */
+export function blindIndex(value, namespace = 'token') {
+  if (value === null || value === undefined || value === '') return null;
+  const digest = crypto.createHmac('sha256', getInternalServiceToken())
+    .update(`${namespace}:${value}`)
+    .digest('hex');
+  return `${namespace}_v1_${digest}`;
+}
+
+/**
+ * Compares a presented secret against a stored blind index in constant time.
+ */
+export function blindIndexMatches(value, storedIndex, namespace = 'token') {
+  const candidate = blindIndex(value, namespace);
+  if (!candidate || !storedIndex) return false;
+  return safeEqual(candidate, storedIndex);
+}
 
 /** True when the request's `Authorization: Bearer` value matches any of the given tokens. */
 export function hasBearer(req, ...tokens) {

@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { hashPassword, verifyPassword, normalizeEmail, normalizeMobile, isValidEmail, isValidMobile, isValidPassword, safeEqual } from '@youpi/common';
+import { hashPassword, verifyPassword, normalizeEmail, normalizeMobile, isValidEmail, isValidMobile, isValidPassword, safeEqual, encryptAtRest, decryptAtRest } from '@youpi/common';
 
 /** Wrong guesses tolerated per issued OTP before the challenge is burned. */
 const OTP_MAX_ATTEMPTS = 5;
@@ -198,7 +198,7 @@ export class CustomerRepository {
     const now = new Date().toISOString();
     this.db.execute(
       'UPDATE customers SET otp_code = ?, otp_expires_at = ?, otp_attempts = 0, updated_at = ? WHERE mobile_number = ?',
-      [otpCode, expiresAt, now, normalized]
+      [encryptAtRest(otpCode), expiresAt, now, normalized]
     );
     return this.findByMobile(normalized);
   }
@@ -223,9 +223,10 @@ export class CustomerRepository {
     if (attempts >= OTP_MAX_ATTEMPTS) return null;
 
     const submitted = String(otpCode).trim();
+    const storedOtp = decryptAtRest(customer.otpCode);
     // `!==` short-circuits on the first differing character; use a constant-time compare.
-    const matches = safeEqual(customer.otpCode || '', submitted);
-    if (!customer.otpCode || !matches) {
+    const matches = storedOtp ? safeEqual(storedOtp, submitted) : false;
+    if (!storedOtp || !matches) {
       this.db.execute(
         'UPDATE customers SET otp_attempts = ?, updated_at = ? WHERE id = ?',
         [attempts + 1, new Date().toISOString(), customer.id]
@@ -608,7 +609,7 @@ export class CustomerRepository {
       mobileNumber: row.mobile_number,
       phoneNumber: row.mobile_number,
       passwordHash: row.password_hash,
-      otpCode: row.otp_code || null,
+      otpCode: decryptAtRest(row.otp_code),
       otpExpiresAt: row.otp_expires_at ? new Date(row.otp_expires_at) : null,
       otpAttempts: Number(row.otp_attempts || 0),
       isPhoneVerified: Boolean(row.is_phone_verified),

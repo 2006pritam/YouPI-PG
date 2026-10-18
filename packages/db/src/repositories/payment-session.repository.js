@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { PaymentStatus, PaymentMethod } from '@youpi/common';
+import { PaymentStatus, PaymentMethod, isValidTransition, TERMINAL_STATES } from '@youpi/common';
 
 export class PaymentSessionRepository {
   /**
@@ -100,6 +100,9 @@ export class PaymentSessionRepository {
           (activeRow.status === PaymentStatus.PROCESSING && activeRow.processing_expires_at && new Date(activeRow.processing_expires_at) <= now);
         if (isStale) {
           const terminalStatus = activeRow.status === PaymentStatus.PROCESSING ? PaymentStatus.FAILED : PaymentStatus.EXPIRED;
+          if (!isValidTransition(activeRow.status, terminalStatus)) {
+            throw new Error(`Illegal payment state transition: cannot move from '${activeRow.status}' to '${terminalStatus}'.`);
+          }
           this.db.execute(`
             UPDATE payment_sessions
             SET status = ?, completed_at = ?, updated_at = ?
@@ -119,7 +122,14 @@ export class PaymentSessionRepository {
       }
 
       if (!activeRow) {
-        // Slot is vacant! Grant ACTIVE slot
+        // Slot is vacant! Grant ACTIVE slot.
+        // Enforce the transition graph: a terminal or PROCESSING session must never be
+        // revived to ACTIVE by a concurrent queue tick.
+        const currentStatus = this.findById(sessionId)?.status;
+        if (currentStatus && !isValidTransition(currentStatus, PaymentStatus.ACTIVE)) {
+          throw new Error(`Illegal payment state transition: cannot move from '${currentStatus}' to 'ACTIVE'.`);
+        }
+
         const expiresAt = new Date(now.getTime() + durationMs).toISOString();
 
         this.db.execute(`
@@ -152,6 +162,10 @@ export class PaymentSessionRepository {
           `, [receivingAccountId, PaymentStatus.QUEUED]);
 
           queuePosition = posRow ? posRow.next_pos : 1;
+        }
+
+        if (existingSession && !isValidTransition(existingSession.status, PaymentStatus.QUEUED)) {
+          throw new Error(`Illegal payment state transition: cannot move from '${existingSession.status}' to 'QUEUED'.`);
         }
 
         this.db.execute(`
@@ -220,6 +234,15 @@ export class PaymentSessionRepository {
 
       if (terminalStates.includes(session.status)) {
         return session; // already terminal, idempotent
+      }
+
+      // The state machine is enforced here rather than merely documented: without this,
+      // any caller could move a live session straight to SUCCESS and bypass verification.
+      if (!TERMINAL_STATES.includes(targetStatus)) {
+        throw new Error(`Not a terminal target status: ${targetStatus}`);
+      }
+      if (!isValidTransition(session.status, targetStatus)) {
+        throw new Error(`Illegal payment state transition: cannot move from '${session.status}' to '${targetStatus}'.`);
       }
 
       const now = new Date().toISOString();
@@ -498,8 +521,12 @@ export class PaymentSessionRepository {
       }
 
       const shouldFinalize = options.finalizeSuccess !== false;
-      const isFirstSuccess = shouldFinalize && session.status !== PaymentStatus.SUCCESS && level >= 1;
-      const targetStatus = shouldFinalize && level >= 1 ? PaymentStatus.SUCCESS : session.status;
+      const wantsSuccess = shouldFinalize && level >= 1;
+      if (wantsSuccess && session.status !== PaymentStatus.SUCCESS && !isValidTransition(session.status, PaymentStatus.SUCCESS)) {
+        throw new Error(`Illegal payment state transition: cannot move from '${session.status}' to 'SUCCESS'.`);
+      }
+      const isFirstSuccess = wantsSuccess && session.status !== PaymentStatus.SUCCESS;
+      const targetStatus = wantsSuccess ? PaymentStatus.SUCCESS : session.status;
       const now = new Date().toISOString();
 
       this.db.execute(`

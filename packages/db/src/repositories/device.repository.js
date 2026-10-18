@@ -1,4 +1,8 @@
 import crypto from 'node:crypto';
+import { blindIndex } from '@youpi/common';
+
+/** Namespace so device-token digests never collide with other blind indexes. */
+const INDEX_NS = 'devtok';
 
 export class DeviceRepository {
   /**
@@ -50,13 +54,18 @@ export class DeviceRepository {
       data.timezone || null,
       data.language || null,
       data.screenSignature || null,
-      deviceToken,
+      // Only a keyed blind index is persisted: the raw token is never needed again and a
+      // database dump must not yield usable device credentials.
+      blindIndex(deviceToken, INDEX_NS),
       status,
       now,
       now
     ]);
 
-    return this.findById(id);
+    // The plaintext token is returned here and only here: it is issued to the registering
+    // client once. Persisted storage keeps only the keyed blind index.
+    const created = this.findById(id);
+    return created ? { ...created, deviceToken } : null;
   }
 
   /**
@@ -75,7 +84,23 @@ export class DeviceRepository {
    */
   findByToken(token) {
     if (!token) return null;
-    const row = this.db.queryOne('SELECT * FROM devices WHERE device_token = ? AND status = "ACTIVE"', [token]);
+    let row = this.db.queryOne(
+      'SELECT * FROM devices WHERE device_token = ? AND status = ?',
+      [blindIndex(token, INDEX_NS), 'ACTIVE']
+    );
+    // Rows written before index-only storage held the raw token; re-index on first use.
+    if (!row && typeof token === 'string' && token.startsWith('devtok_')) {
+      const legacy = this.db.queryOne(
+        'SELECT * FROM devices WHERE device_token = ? AND status = ?',
+        [token, 'ACTIVE']
+      );
+      if (legacy) {
+        try {
+          this.db.execute('UPDATE devices SET device_token = ? WHERE id = ?', [blindIndex(token, INDEX_NS), legacy.id]);
+        } catch {}
+        row = legacy;
+      }
+    }
     return row ? this.mapRow(row) : null;
   }
 
@@ -167,7 +192,7 @@ export class DeviceRepository {
     }
     if (data.deviceToken !== undefined) {
       fields.push('device_token = ?');
-      values.push(data.deviceToken);
+      values.push(blindIndex(data.deviceToken, INDEX_NS));
     }
 
     fields.push('last_seen_at = ?');
@@ -194,7 +219,8 @@ export class DeviceRepository {
       timezone: row.timezone,
       language: row.language,
       screenSignature: row.screen_signature,
-      deviceToken: row.device_token,
+      // Omitted: this column now holds a keyed blind index, not a usable credential.
+      deviceToken: null,
       status: row.status,
       createdAt: new Date(row.created_at),
       lastSeenAt: new Date(row.last_seen_at)

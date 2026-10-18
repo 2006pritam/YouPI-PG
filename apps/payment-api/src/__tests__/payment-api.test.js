@@ -1,21 +1,26 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { Database } from '@youpi/db';
+import { Database, MerchantRepository } from '@youpi/db';
 import { startServer } from '../index.js';
 import { PaymentStatus, ObserverSource, verifyHmac } from '@youpi/common';
-import { authHeadersFor } from '../../../../scripts/test-support.js';
+import { authHeadersFor, merchantHeaders } from '../../../../scripts/test-support.js';
 
 describe('Payment API End-to-End HTTP Integration Tests', () => {
   let serverInstance;
   let baseUrl;
   let testDb;
+  let merchantSecret;
 
   before(async () => {
     testDb = new Database({ inMemory: true });
     // Use an ephemeral random port (e.g. 0 or high port 6199) to prevent collisions
     serverInstance = await startServer(6199, testDb);
     baseUrl = `http://localhost:${serverInstance.port}`;
+    // Merchant-private fields on GET /payments/:id are only returned to the owning
+    // merchant, so read the seeded secret through the repository (the raw column is
+    // encrypted at rest).
+    merchantSecret = new MerchantRepository(testDb).findAll()[0].webhookSecret;
   });
 
   after(async () => {
@@ -522,7 +527,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
     assert.ok(obs1.body.attribution.verificationTag.includes('Single Verification') || obs1.body.attribution.verificationTag.includes('SMS'));
 
     // Check payment status: must be SUCCESS with Level 1
-    const checkL1 = await request(`/api/v1/payments/${paymentId}`);
+    const checkL1 = await request(`/api/v1/payments/${paymentId}`, { headers: merchantHeaders(merchantSecret) });
     assert.equal(checkL1.body.status, 'SUCCESS');
     assert.equal(checkL1.body.verificationLevel, 1);
     assert.deepEqual(checkL1.body.verificationSources, ['GOOGLE_MESSAGES']);
@@ -543,7 +548,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
     assert.equal(obs2.body.attribution.verificationLevel, 2);
     assert.ok(obs2.body.attribution.verificationTag.includes('Dual Verification'));
 
-    const checkL2 = await request(`/api/v1/payments/${paymentId}`);
+    const checkL2 = await request(`/api/v1/payments/${paymentId}`, { headers: merchantHeaders(merchantSecret) });
     assert.equal(checkL2.body.verificationLevel, 2);
     assert.ok(checkL2.body.verificationSources.includes('GOOGLE_MESSAGES'));
     assert.ok(checkL2.body.verificationSources.includes('GMAIL'));
@@ -717,6 +722,8 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
           webhookSecret: 'secret_autodetect_test_9988'
         }
       });
+      // This test rotates the merchant secret; re-read so merchant-scoped reads still pass.
+      merchantSecret = new MerchantRepository(testDb).findAll()[0].webhookSecret;
 
       // 4. Create payment session in ACTIVE state (customer scanning QR, did NOT click Payment Done)
       const payRes = await request('/api/v1/payments', {
@@ -751,7 +758,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
       assert.equal(obs1.body.attribution.verificationLevel, 1);
 
       // Payment MUST be immediately SUCCESS for customer
-      const checkAfterObs1 = await request(`/api/v1/payments/${paymentId}`);
+      const checkAfterObs1 = await request(`/api/v1/payments/${paymentId}`, { headers: merchantHeaders(merchantSecret) });
       assert.equal(checkAfterObs1.body.status, 'SUCCESS');
       assert.equal(checkAfterObs1.body.verificationLevel, 1);
 
@@ -781,7 +788,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
       assert.equal(obs2.body.attribution.verificationLevel, 2);
 
       // Invariant: Verification level in admin upgrades to L2 (Dual Verification)
-      const checkAfterObs2 = await request(`/api/v1/payments/${paymentId}`);
+      const checkAfterObs2 = await request(`/api/v1/payments/${paymentId}`, { headers: merchantHeaders(merchantSecret) });
       assert.equal(checkAfterObs2.body.verificationLevel, 2);
       assert.deepEqual(checkAfterObs2.body.verificationSources.sort(), ['GMAIL', 'GOOGLE_MESSAGES'].sort());
 

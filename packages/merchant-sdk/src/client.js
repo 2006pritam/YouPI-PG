@@ -92,7 +92,15 @@ export class YoupiPaymentClient {
    */
   async getPayment(paymentId) {
     const url = `${this.apiUrl}/api/v1/payments/${paymentId}`;
-    const res = await fetch(url);
+    const headers = {};
+    // Present the merchant secret so the gateway returns the merchant-private fields
+    // (metadata, verification internals, returnUrl). Without it the caller gets the
+    // redacted public view, which is all an unauthenticated holder of a payment id sees.
+    if (this.webhookSecret) {
+      headers['X-Merchant-Key'] = this.webhookSecret;
+    }
+
+    const res = await fetch(url, { headers });
 
     if (!res.ok) {
       const err = await res.text();

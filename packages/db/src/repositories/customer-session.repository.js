@@ -1,4 +1,8 @@
 import crypto from 'node:crypto';
+import { blindIndex } from '@youpi/common';
+
+/** Namespace so session-token and device-token digests can never collide. */
+const INDEX_NS = 'csess';
 
 export class CustomerSessionRepository {
   /**
@@ -31,10 +35,13 @@ export class CustomerSessionRepository {
       VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
     `;
 
+    // The bearer token is returned to the client once and never read back from the database,
+    // so only a keyed blind index is stored. A database dump therefore cannot be replayed
+    // as valid sessions, which a plaintext (or plain-hashed) column would allow.
     this.db.execute(sql, [
       id,
       data.customerId,
-      token,
+      blindIndex(token, INDEX_NS),
       expiresAt.toISOString(),
       data.ipAddress || null,
       data.userAgent || null,
@@ -62,8 +69,23 @@ export class CustomerSessionRepository {
 
     const row = this.db.queryOne(
       'SELECT * FROM customer_sessions WHERE token = ? AND is_active = 1',
-      [token]
+      [blindIndex(token, INDEX_NS)]
     );
+
+    // Rows written before index-only storage held the raw token.
+    if (!row && typeof token === 'string' && token.startsWith('csess_') && token.length < 100) {
+      const legacy = this.db.queryOne(
+        'SELECT * FROM customer_sessions WHERE token = ? AND is_active = 1',
+        [token]
+      );
+      if (legacy) {
+        // Re-index on first successful use so the plaintext row does not linger.
+        try {
+          this.db.execute('UPDATE customer_sessions SET token = ? WHERE id = ?', [blindIndex(token, INDEX_NS), legacy.id]);
+        } catch {}
+        return this.findByToken(token);
+      }
+    }
 
     if (!row) return null;
 
@@ -82,7 +104,6 @@ export class CustomerSessionRepository {
     const session = {
       id: row.id,
       customerId: row.customer_id,
-      token: row.token,
       expiresAt,
       isActive: Boolean(row.is_active),
       createdAt: new Date(row.created_at)
@@ -121,6 +142,11 @@ export class CustomerSessionRepository {
   revokeToken(token) {
     if (!token) return false;
     const now = new Date().toISOString();
+    this.db.execute(
+      'UPDATE customer_sessions SET is_active = 0, updated_at = ? WHERE token = ?',
+      [now, blindIndex(token, INDEX_NS)]
+    );
+    // Also clear any legacy plaintext row so logout always revokes.
     this.db.execute(
       'UPDATE customer_sessions SET is_active = 0, updated_at = ? WHERE token = ?',
       [now, token]

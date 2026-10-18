@@ -65,6 +65,15 @@ describe('Section 12: Developer Test Mode Acceptance Tests (All 29 Points)', () 
 
   // Helper to create an active payment session
   function createActiveSession(orderId, amountPaise, customerId = null, slotOffsetMs = 0) {
+    // A receiving account may hold only one slot-occupying session at a time (enforced by a
+    // partial unique index). Release any session left over from the previous case so each
+    // helper call starts from a clean slot, as the real queue does.
+    testDb.execute(
+      `UPDATE payment_sessions SET status = ?, updated_at = ?
+       WHERE receiving_account_id = ? AND status IN ('ACTIVE', 'PROCESSING')`,
+      [PaymentStatus.CANCELLED, new Date().toISOString(), receivingAccountId]
+    );
+
     const now = Date.now() + slotOffsetMs;
     const session = sessionRepo.create({
       merchantId,

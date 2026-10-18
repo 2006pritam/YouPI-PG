@@ -154,17 +154,22 @@ export function runMigrations(targetDb) {
     });
   }
 
-  // Seed default customer if none exists
-  const customerRepo = new CustomerRepository(db);
-  const existingCust = customerRepo.findByMobile('9212339720');
-  if (!existingCust) {
-    customerRepo.create({
-      id: '00000000-0000-0000-0000-000000000002',
-      name: 'Gaurav Mehra',
-      email: 'gauravmehra09876@gmail.com',
-      mobileNumber: '9212339720',
-      isPhoneVerified: true
-    });
+  // Demo customer seeding is opt-in and never carries real personal data.
+  // Previously this unconditionally created a customer with a real name, phone number and
+  // email, and flagged the phone as verified — shipping someone's PII (and a pre-authorised
+  // OTP login identity) into every merchant deployment.
+  if (process.env.YOUPI_SEED_DEMO_CUSTOMER === 'true') {
+    const customerRepo = new CustomerRepository(db);
+    const demoMobile = '9000000000';
+    if (!customerRepo.findByMobile(demoMobile)) {
+      customerRepo.create({
+        id: '00000000-0000-0000-0000-000000000002',
+        name: 'Demo Customer',
+        email: 'demo-customer@youpi.local',
+        mobileNumber: demoMobile,
+        isPhoneVerified: false
+      });
+    }
   }
 
   return {

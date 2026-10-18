@@ -1,4 +1,37 @@
 import crypto from 'node:crypto';
+import { encryptAtRest, decryptAtRest } from '@youpi/common';
+
+/** Gmail OAuth credentials are nested inside `branding.gmailConfig`; encrypt just those. */
+const GMAIL_SECRET_FIELDS = ['clientSecret', 'refreshToken', 'apiKey'];
+
+/** Serializes branding, encrypting any nested Gmail OAuth secrets. */
+function serializeBranding(branding) {
+  if (!branding || typeof branding !== 'object') return branding || '{"primaryColor":"#2563eb","appName":"YOUPI PG","logoUrl":null}';
+  const copy = { ...branding };
+  const gmail = copy.gmailConfig;
+  if (gmail && typeof gmail === 'object') {
+    const enc = { ...gmail };
+    for (const field of GMAIL_SECRET_FIELDS) {
+      if (enc[field]) enc[field] = encryptAtRest(enc[field]);
+    }
+    copy.gmailConfig = enc;
+  }
+  return JSON.stringify(copy);
+}
+
+/** Reverses serializeBranding. Plaintext values written earlier pass through unchanged. */
+function deserializeBranding(raw) {
+  const branding = JSON.parse(raw || '{}');
+  const gmail = branding.gmailConfig;
+  if (gmail && typeof gmail === 'object') {
+    const dec = { ...gmail };
+    for (const field of GMAIL_SECRET_FIELDS) {
+      if (dec[field]) dec[field] = decryptAtRest(dec[field]);
+    }
+    branding.gmailConfig = dec;
+  }
+  return branding;
+}
 
 export class MerchantRepository {
   /**
@@ -13,7 +46,9 @@ export class MerchantRepository {
    */
   create(data) {
     const id = data.id || crypto.randomUUID();
-    const branding = typeof data.branding === 'object' ? JSON.stringify(data.branding) : (data.branding || '{"primaryColor":"#2563eb","appName":"YOUPI PG","logoUrl":null}');
+    const branding = typeof data.branding === 'object'
+      ? serializeBranding(data.branding)
+      : (data.branding || '{"primaryColor":"#2563eb","appName":"YOUPI PG","logoUrl":null}');
     const now = new Date().toISOString();
 
     const sql = `
@@ -28,7 +63,8 @@ export class MerchantRepository {
       data.contactEmail,
       data.contactPhone,
       data.webhookUrl || null,
-      data.webhookSecret || crypto.randomBytes(32).toString('hex'),
+      // Webhook HMAC key must be recoverable at signing time, so it is encrypted at rest.
+      encryptAtRest(data.webhookSecret || crypto.randomBytes(32).toString('hex')),
       branding,
       now,
       now
@@ -86,11 +122,11 @@ export class MerchantRepository {
     }
     if (updates.webhookSecret !== undefined) {
       fields.push('webhook_secret = ?');
-      params.push(updates.webhookSecret);
+      params.push(encryptAtRest(updates.webhookSecret));
     }
     if (updates.branding !== undefined) {
       fields.push('branding = ?');
-      params.push(typeof updates.branding === 'object' ? JSON.stringify(updates.branding) : updates.branding);
+      params.push(typeof updates.branding === 'object' ? serializeBranding(updates.branding) : updates.branding);
     }
 
     if (fields.length === 0) return this.findById(id);
@@ -112,8 +148,9 @@ export class MerchantRepository {
       contactEmail: row.contact_email,
       contactPhone: row.contact_phone,
       webhookUrl: row.webhook_url,
-      webhookSecret: row.webhook_secret,
-      branding: JSON.parse(row.branding || '{}'),
+      // Plaintext rows written before encryption existed decrypt to themselves.
+      webhookSecret: decryptAtRest(row.webhook_secret),
+      branding: deserializeBranding(row.branding),
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at)
     };

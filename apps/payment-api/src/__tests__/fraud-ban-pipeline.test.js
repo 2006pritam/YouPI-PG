@@ -79,12 +79,21 @@ describe('YOUPI PG: Parser Rule Correction & Exact Fraud/Ban System (All 29 Acce
     });
   }
 
-  function createActiveSession(orderId, amountPaise, customerId = null, slotOffsetMs = 0) {
+  function createActiveSession(orderId, amountPaise, customerId = null, slotOffsetMs = 0, accountId = receivingAccountId) {
+    // A receiving account may hold only one slot-occupying session (partial unique index).
+    // Release whatever still occupies *this* account before taking its slot, so repeated
+    // calls in separate cases start clean. Sessions on other accounts are untouched.
+    testDb.execute(
+      `UPDATE payment_sessions SET status = ?, updated_at = ?
+       WHERE receiving_account_id = ? AND status IN ('ACTIVE', 'PROCESSING')`,
+      [PaymentStatus.CANCELLED, new Date().toISOString(), accountId]
+    );
+
     const now = Date.now() + slotOffsetMs;
     const session = sessionRepo.create({
       merchantId,
       customerId,
-      receivingAccountId,
+      receivingAccountId: accountId,
       orderId,
       amountPaise,
       currency: 'INR',
@@ -94,6 +103,21 @@ describe('YOUPI PG: Parser Rule Correction & Exact Fraud/Ban System (All 29 Acce
       expiresAt: new Date(now + 600000).toISOString()
     });
     return session;
+  }
+
+  /**
+   * A receiving account holds at most one slot-occupying session (partial unique index).
+   * Tests needing several simultaneous ACTIVE sessions must spread them across accounts.
+   */
+  function createAdditionalReceivingAccount(suffix) {
+    const id = `00000000-0000-0000-0000-0000000000${String(suffix).padStart(2, '0')}`;
+    testDb.execute(
+      `INSERT OR IGNORE INTO payment_receiving_accounts
+        (id, merchant_id, upi_id, payee_name, is_merchant_enabled, is_active, is_slot_busy, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 1, 0, 0, ?, ?)`,
+      [id, merchantId, `merchant${suffix}@upi`, 'Fraud Test Merchant', new Date().toISOString(), new Date().toISOString()]
+    );
+    return id;
   }
 
   // =========================================================================
@@ -461,7 +485,8 @@ describe('YOUPI PG: Parser Rule Correction & Exact Fraud/Ban System (All 29 Acce
       mobileNumber: '+919876543221'
     });
     const s1 = createActiveSession('ORD-18-A', 49900n, cust.id);
-    const s2 = createActiveSession('ORD-18-B', 99900n, cust.id);
+    // Second concurrent session needs a second slot: one account can only hold one.
+    const s2 = createActiveSession('ORD-18-B', 99900n, cust.id, 0, createAdditionalReceivingAccount(91));
 
     assert.equal(sessionRepo.findById(s1.id).status, PaymentStatus.ACTIVE);
     assert.equal(sessionRepo.findById(s2.id).status, PaymentStatus.ACTIVE);

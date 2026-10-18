@@ -50,9 +50,14 @@ export class Database {
       }
       const dir = path.dirname(dbPath);
       if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       }
       this.db = new DatabaseSync(dbPath);
+      // The file holds webhook secrets, session-token indexes, OTPs and customer PII.
+      // Default file creation honours umask, which on many hosts leaves it group/world
+      // readable, so restrict it explicitly.
+      try { fs.chmodSync(dbPath, 0o600); } catch {}
+      try { fs.chmodSync(dir, 0o700); } catch {}
     }
 
     // Enable foreign keys, busy timeout, and WAL mode for maximum concurrency and integrity
@@ -134,7 +139,10 @@ export class Database {
    * @returns {T}
    */
   transaction(callback) {
-    this.db.exec('BEGIN TRANSACTION;');
+    // IMMEDIATE (not DEFERRED) so the write lock is taken up front. A deferred transaction
+    // starts as a read transaction and only upgrades on first write, which lets two
+    // concurrent slot-acquisition callers both observe a free slot before either writes.
+    this.db.exec('BEGIN IMMEDIATE;');
     try {
       const result = callback();
       this.db.exec('COMMIT;');

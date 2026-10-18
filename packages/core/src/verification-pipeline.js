@@ -307,7 +307,7 @@ export class PaymentVerificationPipeline {
       const cleanSender = (sender || '').trim();
       const digitsOnly = cleanSender.replace(/[\s+-]/g, '');
 
-      // Pure numeric check: Any string consisting solely of numbers (personal mobile numbers like 9212339720 or +91...)
+      // Pure numeric check: Any string consisting solely of numbers (personal mobile numbers or +91 prefixed values)
       const isPureNumeric = /^\d+$/.test(digitsOnly) && !/[a-zA-Z]/.test(cleanSender);
 
       if (isPureNumeric) {

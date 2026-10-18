@@ -98,6 +98,12 @@ CREATE TABLE IF NOT EXISTS payment_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_payment_sessions_active ON payment_sessions (receiving_account_id, status);
+-- Slot exclusivity is a database invariant, not an application convention: at most one
+-- session per receiving account may occupy the slot (ACTIVE or PROCESSING) at any time.
+-- Concurrent writers are rejected by the engine instead of relying on lock contention.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_one_slot_per_receiving_account
+  ON payment_sessions (receiving_account_id)
+  WHERE status IN ('ACTIVE', 'PROCESSING') AND receiving_account_id IS NOT NULL;
 
 -- 5. Payment Observations Table
 CREATE TABLE IF NOT EXISTS payment_observations (
