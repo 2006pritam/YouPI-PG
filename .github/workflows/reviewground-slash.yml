@@ -21,13 +21,16 @@ jobs:
     if: |
       github.event.issue.pull_request != null &&
       github.actor != 'dependabot[bot]' &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'COLLABORATOR') &&
       (contains(github.event.comment.body, '@reviewground') ||
        contains(github.event.comment.body, '/review') ||
        contains(github.event.comment.body, '@review'))
 
     steps:
       - name: Run ReviewGround Slash Command
-        uses: arungupta1526/reviewground@v1
+        uses: arungupta1526/reviewground@v1.4.0
         with:
           mode: 'slash-command'
           github-token: ${{ secrets.GITHUB_TOKEN }}

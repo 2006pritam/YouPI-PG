@@ -9,6 +9,7 @@ on:
       - '.gitignore'
       - 'LICENSE'
       - '.vscode/**'
+      - '.github/dependabot.yml'
   workflow_dispatch:
 
 permissions:
@@ -35,7 +36,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run ReviewGround AI Review
-        uses: arungupta1526/reviewground@v1
+        uses: arungupta1526/reviewground@v1.4.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           enable-pr-description-update: 'true'
