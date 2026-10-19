@@ -207,6 +207,69 @@ export class AttributionEngine {
 
       const isTimeValid = !isPriorExpiredSession && (normalizedObs.observedAt >= slotStart);
 
+      // Invariant Check 0a: Transaction Reference Already Used Check
+      let isUtrAlreadyUsed = false;
+      const trimmedUtr = normalizedObs.bankReferenceNumber ? String(normalizedObs.bankReferenceNumber).trim() : '';
+      if (trimmedUtr.length > 0) {
+        const priorUsedSession = this.sessionRepo.db.queryOne(`
+          SELECT ps.id, ps.order_id
+          FROM payment_sessions ps
+          JOIN payment_observations po ON ps.attributed_observation_id = po.id
+          WHERE ps.status = 'SUCCESS'
+            AND ps.id != ?
+            AND po.bank_reference_number = ?
+          LIMIT 1
+        `, [currentSession.id, trimmedUtr]);
+
+        if (priorUsedSession) {
+          isUtrAlreadyUsed = true;
+          if (this.auditRepo) {
+            this.auditRepo.log({
+              merchantId: currentSession.merchantId,
+              entityType: 'PAYMENT_SESSION',
+              entityId: currentSession.id,
+              action: 'REUSED_UTR_REJECTED',
+              actorType: 'SYSTEM',
+              details: {
+                bankReferenceNumber: trimmedUtr,
+                consumedByOrderId: priorUsedSession.order_id,
+                consumedBySessionId: priorUsedSession.id
+              }
+            });
+          }
+        }
+      }
+
+      // Invariant Check 0b: Check if SMS is from personal numeric phone number (10-15 digits E.164, no letters)
+      let isPersonalSms = false;
+      const senderStr = (normalizedObs.rawPayload?.sender || normalizedObs.rawPayload?.from || '').toString().trim();
+      if ((normalizedObs.source === 'SMS' || normalizedObs.source === 'ANDROID_OBSERVER') && senderStr) {
+        const digitsOnly = senderStr.replace(/[\s+-]/g, '');
+        if (digitsOnly.length >= 10 && /^\d+$/.test(digitsOnly) && !/[a-zA-Z]/.test(senderStr)) {
+          isPersonalSms = true;
+        }
+      }
+
+      if (isUtrAlreadyUsed) {
+        return {
+          attributed: false,
+          duplicate: true,
+          lateMatch: false,
+          observationId: savedObs.id,
+          outcomeStatus: 'REFERENCE_ALREADY_USED'
+        };
+      }
+
+      if (isPersonalSms) {
+        return {
+          attributed: false,
+          duplicate: false,
+          lateMatch: false,
+          observationId: savedObs.id,
+          outcomeStatus: 'PERSONAL_SMS_REJECTED'
+        };
+      }
+
       if (isEligibleStatus && isAmountMatch && isTimeValid) {
         const wasActive = currentSession.status === PaymentStatus.ACTIVE;
 

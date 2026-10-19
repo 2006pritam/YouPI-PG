@@ -91,6 +91,7 @@ export function registerPollerRoutes(server, ctx) {
         sender,
         receivingAccountId: body.receivingAccountId,
         paymentSessionId: body.paymentSessionId,
+        bankReferenceNumber: body.bankReferenceNumber || body.utr,
         // Test flags relax verification: honour them only for the admin credential, never for observers.
         isTest: Boolean(body.isTest) && isAdminRequest(req),
         testModeActive: Boolean(body.testModeActive) && isAdminRequest(req)
@@ -113,6 +114,17 @@ export function registerPollerRoutes(server, ctx) {
           accepted: true,
           observationId: pipeResult.messageId || pipeResult.stages?.stage6?.details?.observationId,
           attribution: pipeResult.stages?.stage6?.details || pipeResult,
+          pipeline: pipeResult
+        });
+        return;
+      }
+
+      if (pipeResult.status === 'REJECTED') {
+        HttpServer.json(res, 400, {
+          accepted: false,
+          status: 'REJECTED',
+          reason: pipeResult.failingCondition,
+          error: pipeResult.failingReason || pipeResult.details,
           pipeline: pipeResult
         });
         return;
@@ -318,9 +330,10 @@ export function registerPollerRoutes(server, ctx) {
       const pipeResult = ctx.pipeline.process({
         source: 'SMS',
         rawText,
-        sender: body.sender || req.headers['x-sender'],
+        sender: body.sender || req.headers['x-sender'] || body.rawNotification?.package,
         receivingAccountId,
         paymentSessionId: body.paymentSessionId,
+        bankReferenceNumber: bankRef,
         isTest: false, // device-supplied flags must never relax verification
         deviceInfo: device ? `${device.device_name} (${device.device_model})` : 'Android SMS Gateway'
       });
@@ -343,6 +356,18 @@ export function registerPollerRoutes(server, ctx) {
           accepted: true,
           observationId: pipeResult.messageId || pipeResult.stages?.stage6?.details?.observationId,
           attribution: pipeResult.stages?.stage6?.details || pipeResult,
+          pipeline: pipeResult
+        });
+        return;
+      }
+
+      if (pipeResult.status === 'REJECTED') {
+        ctx.db.execute("UPDATE android_devices SET last_observation_at = datetime('now') WHERE id = ?", [deviceId]);
+        HttpServer.json(res, 400, {
+          accepted: false,
+          status: 'REJECTED',
+          reason: pipeResult.failingCondition,
+          error: pipeResult.failingReason || pipeResult.details,
           pipeline: pipeResult
         });
         return;
