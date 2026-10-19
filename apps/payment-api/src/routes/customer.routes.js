@@ -34,7 +34,8 @@ export function registerCustomerRoutes(server, ctx) {
 
   // Helper to set session cookie header
   function buildSessionCookie(token, maxAgeSeconds = 30 * 24 * 3600) {
-    return `youpi_session=${token}; Path=/; Max-Age=${maxAgeSeconds}; HttpOnly; SameSite=Lax`;
+    const isProd = process.env.NODE_ENV === 'production';
+    return `youpi_session=${token}; Path=/; Max-Age=${maxAgeSeconds}; HttpOnly; SameSite=Lax${isProd ? '; Secure' : ''}`;
   }
 
   // Pending signup challenges cache: mobileNumber -> { otpCode, expiresAt, name, email }
@@ -42,6 +43,9 @@ export function registerCustomerRoutes(server, ctx) {
 
   // Throttles OTP dispatch per mobile number so the WhatsApp channel cannot be flooded/cost-abused.
   const otpRequestLog = new Map();
+
+  // Throttles check-user inquiries to prevent bulk mobile number scanning / user enumeration.
+  const checkUserRateMap = new Map();
 
   /**
    * Resolves the configured cooldown between consecutive OTP dispatches.
@@ -112,6 +116,18 @@ export function registerCustomerRoutes(server, ctx) {
       return;
     }
 
+    const ip = req.socket?.remoteAddress || '127.0.0.1';
+    const now = Date.now();
+    for (const [key, at] of checkUserRateMap) {
+      if (now - at > 60000) checkUserRateMap.delete(key);
+    }
+    const ipCount = Array.from(checkUserRateMap.entries()).filter(([k]) => k.startsWith(ip)).length;
+    if (ipCount >= 60) {
+      HttpServer.json(res, 429, { error: 'Too many requests. Please try again in a minute.' });
+      return;
+    }
+    checkUserRateMap.set(`${ip}_${cleanMobile}_${now}`, now);
+
     const existingUser = ctx.customerRepo.findByMobile(cleanMobile);
 
     HttpServer.json(res, 200, {
@@ -121,8 +137,8 @@ export function registerCustomerRoutes(server, ctx) {
       customer: existingUser ? {
         id: existingUser.id,
         name: existingUser.name,
-        email: existingUser.email,
-        mobileNumber: existingUser.mobileNumber
+        email: existingUser.email ? `${existingUser.email.slice(0, 2)}***@${existingUser.email.split('@')[1] || '***'}` : null,
+        mobileNumber: cleanMobile
       } : null
     });
   });

@@ -658,13 +658,15 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
       assert.equal(parsedBody.orderId, 'WEBHOOK-TEST-ORD-1');
       assert.equal(parsedBody.amount, '450.00');
 
-      // 10. Cryptographically verify signature using the custom secret
+      // 10. Cryptographically verify signature using the custom secret with timestamp binding
       const sig = receivedHeaders['x-gateway-signature'].replace('sha256=', '');
-      const validSig = verifyHmac(receivedPayload, customSecret, sig);
+      const ts = receivedHeaders['x-gateway-timestamp'];
+      assert.ok(ts);
+      const validSig = verifyHmac(`${ts}.${receivedPayload}`, customSecret, sig);
       assert.equal(validSig, true);
 
       // Verify wrong secret fails
-      const invalidSig = verifyHmac(receivedPayload, 'wrong_secret_123', sig);
+      const invalidSig = verifyHmac(`${ts}.${receivedPayload}`, 'wrong_secret_123', sig);
       assert.equal(invalidSig, false);
 
       // 11. Test non-destructive update: update only businessName and verify webhook config is preserved!

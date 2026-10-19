@@ -115,8 +115,8 @@ export class CustomerRepository {
     if (!normalized) return null;
     const clean10 = normalized.slice(-10);
     const row = this.db.queryOne(
-      'SELECT * FROM customers WHERE mobile_number = ? OR mobile_number = ? OR mobile_number = ? OR mobile_number LIKE ?',
-      [normalized, clean10, '+91' + clean10, '%' + clean10]
+      'SELECT * FROM customers WHERE mobile_number IN (?, ?, ?)',
+      [normalized, clean10, '+91' + clean10]
     );
     if (!row) return null;
     return this.mapRow(row);
@@ -279,32 +279,35 @@ export class CustomerRepository {
     if (!id) return null;
     const now = new Date().toISOString();
     const lastDevice = options.lastDevice || options.deviceInfo || null;
-    this.db.execute(
-      "UPDATE customers SET status = 'BANNED', ban_reason = ?, banned_at = ?, last_device = COALESCE(?, last_device), updated_at = ? WHERE id = ?",
-      [reason, now, lastDevice, now, id]
-    );
 
-    // Immediately transition all existing non-terminal sessions for this customer to EXPIRED (Section 10, Test 18)
-    const activeSessions = this.db.query(
-      "SELECT id, receiving_account_id FROM payment_sessions WHERE customer_id = ? AND status IN ('INITIATED', 'QUEUED', 'ACTIVE', 'PROCESSING')",
-      [id]
-    );
-    if (activeSessions.length > 0) {
+    return this.db.transaction(() => {
       this.db.execute(
-        "UPDATE payment_sessions SET status = 'EXPIRED', updated_at = ? WHERE customer_id = ? AND status IN ('INITIATED', 'QUEUED', 'ACTIVE', 'PROCESSING')",
-        [now, id]
+        "UPDATE customers SET status = 'BANNED', ban_reason = ?, banned_at = ?, last_device = COALESCE(?, last_device), updated_at = ? WHERE id = ?",
+        [reason, now, lastDevice, now, id]
       );
-      for (const s of activeSessions) {
-        if (s.receiving_account_id) {
-          this.db.execute(
-            "UPDATE payment_receiving_accounts SET is_slot_busy = 0, current_active_session_id = NULL WHERE id = ? AND current_active_session_id = ?",
-            [s.receiving_account_id, s.id]
-          );
+
+      // Immediately transition all existing non-terminal sessions for this customer to EXPIRED (Section 10, Test 18)
+      const activeSessions = this.db.query(
+        "SELECT id, receiving_account_id FROM payment_sessions WHERE customer_id = ? AND status IN ('INITIATED', 'QUEUED', 'ACTIVE', 'PROCESSING')",
+        [id]
+      );
+      if (activeSessions.length > 0) {
+        this.db.execute(
+          "UPDATE payment_sessions SET status = 'EXPIRED', updated_at = ? WHERE customer_id = ? AND status IN ('INITIATED', 'QUEUED', 'ACTIVE', 'PROCESSING')",
+          [now, id]
+        );
+        for (const s of activeSessions) {
+          if (s.receiving_account_id) {
+            this.db.execute(
+              "UPDATE payment_receiving_accounts SET is_slot_busy = 0, current_active_session_id = NULL WHERE id = ? AND current_active_session_id = ?",
+              [s.receiving_account_id, s.id]
+            );
+          }
         }
       }
-    }
 
-    return this.findById(id);
+      return this.findById(id);
+    });
   }
 
   /**
