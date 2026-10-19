@@ -22,6 +22,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  issues: write
   actions: read
 
 # Cancel in-progress runs for PRs to save runner minutes, but queue safely on main branch
@@ -72,7 +73,7 @@ jobs:
         run: npm ci
 
       - name: Security Audit (npm audit)
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=high
 
   # =============================================================
   # Stage 3: TypeScript Compilation & Production Build Check
@@ -137,7 +138,7 @@ jobs:
   ci-summary:
     name: 📊 5. Update ReviewGround CI Summary
     needs: [gitleaks, security-audit, build, test]
-    if: always() && github.event_name == 'pull_request'
+    if: always() && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
 
     steps:

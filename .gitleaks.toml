@@ -1,0 +1,5 @@
+[allowlist]
+description = "Ignore historical seed commit from initial repository creation"
+commits = [
+  "2c2b4918b1b59f1287108b95906ae65032f878f8"
+]
