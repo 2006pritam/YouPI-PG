@@ -2,6 +2,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { startCheckoutServer } from '../index.js';
+import { frameAncestorOrigins } from '../server.js';
 import { generateQrMatrix, generateQrSvg } from '../qr.js';
 
 describe('Checkout Portal Integration Tests', () => {
@@ -83,6 +84,25 @@ describe('Checkout Portal Integration Tests', () => {
       assert.equal(res.text.includes('View Offers'), false);
       assert.equal(res.text.includes('id="checkoutNoticeText"'), false);
       assert.equal(res.text.includes('available-offers-card'), false);
+    });
+
+    test('GET /checkout/:id can be framed only by origins in CHECKOUT_FRAME_ANCESTORS', async () => {
+      const before = await get('/checkout/pay_test_uuid_12345');
+      assert.equal(before.headers['x-frame-options'], 'SAMEORIGIN');
+      assert.ok(before.headers['content-security-policy'].includes("frame-ancestors 'self';"));
+
+      process.env.CHECKOUT_FRAME_ANCESTORS = 'https://shop.example.com, javascript:alert(1) https://x.test/path *';
+      try {
+        const res = await get('/checkout/pay_test_uuid_12345');
+        assert.equal(res.headers['x-frame-options'], undefined);
+        assert.ok(res.headers['content-security-policy'].includes("frame-ancestors 'self' https://shop.example.com;"));
+        // The QR image stays unframeable.
+        const qr = await get('/checkout/pay_test_uuid_12345/qr.svg');
+        assert.equal(qr.headers['x-frame-options'], 'SAMEORIGIN');
+      } finally {
+        delete process.env.CHECKOUT_FRAME_ANCESTORS;
+      }
+      assert.deepEqual(frameAncestorOrigins('https://a.test http://localhost:5000/'), ['https://a.test', 'http://localhost:5000']);
     });
 
     test('GET /checkout/:id/qr.svg returns dynamic SVG image', async () => {

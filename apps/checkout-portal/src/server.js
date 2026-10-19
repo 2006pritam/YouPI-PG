@@ -17,6 +17,40 @@ const BASE_SECURITY_HEADERS = Object.freeze({
 });
 
 /**
+ * Origins allowed to embed the checkout page, from CHECKOUT_FRAME_ANCESTORS
+ * (comma or space separated, e.g. "https://shop.example.com"). youpi.js opens the
+ * checkout in an iframe on the merchant's own site, which `frame-ancestors 'self'`
+ * blocks whenever the store and the portal are on different origins. Anything that
+ * is not a plain http(s) origin is ignored, so the CSP cannot be widened by accident.
+ */
+export function frameAncestorOrigins(raw = process.env.CHECKOUT_FRAME_ANCESTORS) {
+  const origins = [];
+  for (const entry of String(raw || '').split(/[\s,]+/)) {
+    if (!entry) continue;
+    try {
+      const url = new URL(entry);
+      if ((url.protocol === 'https:' || url.protocol === 'http:') && entry.replace(/\/$/, '') === url.origin) {
+        origins.push(url.origin);
+      }
+    } catch {}
+  }
+  return origins;
+}
+
+/** Headers for the embeddable checkout page: BASE_SECURITY_HEADERS plus any allowed embedders. */
+function checkoutPageSecurityHeaders() {
+  const origins = frameAncestorOrigins();
+  if (!origins.length) return BASE_SECURITY_HEADERS;
+  // X-Frame-Options cannot express an allowlist; CSP frame-ancestors takes over.
+  const { 'X-Frame-Options': _xfo, ...rest } = BASE_SECURITY_HEADERS;
+  return {
+    ...rest,
+    'Content-Security-Policy': BASE_SECURITY_HEADERS['Content-Security-Policy']
+      .replace("frame-ancestors 'self'", `frame-ancestors 'self' ${origins.join(' ')}`)
+  };
+}
+
+/**
  * Escapes a value for interpolation into HTML text or attribute context.
  * Order ids, merchant names and branding fields are attacker-influenced, so they must
  * never be injected raw into the checkout template.
@@ -293,7 +327,7 @@ res.writeHead(200, {
             'Pragma': 'no-cache',
             'Expires': '0',
             'Access-Control-Allow-Origin': '*',
-            ...BASE_SECURITY_HEADERS
+            ...checkoutPageSecurityHeaders()
           });
         res.end(rendered);
         return;
