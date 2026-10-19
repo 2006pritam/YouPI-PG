@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: Run ReviewGround Slash Command
-        uses: arungupta1526/reviewground@v1.4.0
+        uses: arungupta1526/reviewground@v1
         with:
           mode: 'slash-command'
           github-token: ${{ secrets.GITHUB_TOKEN }}
