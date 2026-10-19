@@ -676,15 +676,18 @@ export class PaymentVerificationPipeline {
       });
     }
 
-    if (session.expiresAt) {
-      const sessionExpiresAt = parseSessionTime(session.expiresAt);
-      if (receivedAt.getTime() > sessionExpiresAt.getTime()) {
+    const activeDeadline = (session.status === PaymentStatus.PROCESSING && (session.processingExpiresAt || session.processing_expires_at))
+      ? parseSessionTime(session.processingExpiresAt || session.processing_expires_at)
+      : (session.expiresAt || session.expires_at ? parseSessionTime(session.expiresAt || session.expires_at) : null);
+
+    if (activeDeadline) {
+      if (receivedAt.getTime() > activeDeadline.getTime()) {
         stage4 = {
           stage: 4,
           name: 'VERIFICATION',
           status: 'FAILED',
           reason: 'SESSION_EXPIRED',
-          details: `Observation received timestamp (${receivedAt.toISOString()}) is after payment session expiration (${sessionExpiresAt.toISOString()}).`
+          details: `Observation received timestamp (${receivedAt.toISOString()}) is after payment session expiration (${activeDeadline.toISOString()}).`
         };
         return buildResult({
           finalStatus: 'REJECTED',

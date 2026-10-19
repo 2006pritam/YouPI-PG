@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
+process.env.NODE_ENV = process.env.NODE_ENV || 'test';
+
 import { createPaymentApp } from '../index.js';
 import { Database } from '@youpi/db';
 import { authFetch } from '../../../../scripts/test-support.js';
 
 test('WhatsApp Berry Protocol OTP Customer Auth & Merchant Configuration Suite', async (t) => {
   const customDb = new Database({ inMemory: true });
-  const app = createPaymentApp(customDb);
+  const app = createPaymentApp(customDb, { otpCooldownMs: 0 });
   const testPort = 6288;
 
   const serverInstance = await new Promise(resolve => {

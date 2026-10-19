@@ -2,7 +2,9 @@ import '../../../../scripts/test-support.js';
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { Database } from '@youpi/db';
+import crypto from 'node:crypto';
+import { Database, PaymentSessionRepository, ObservationRepository, SupportTicketRepository, AuditLogRepository, ReceivingAccountRepository, CustomerRepository } from '@youpi/db';
+import { ObservationNormalizer, PaymentVerificationPipeline, AttributionEngine, RecoveryEngine, QueueEngine, TimingEngine } from '@youpi/core';
 import { startServer as startPaymentApi } from '../index.js';
 import { PaymentStatus } from '@youpi/common';
 import { authHeadersFor } from '../../../../scripts/test-support.js';
@@ -148,4 +150,246 @@ describe('Verification Pipeline & Fall-Through Protection (#22)', () => {
     const freshS2 = sessionRepo.findById(s2.id);
     assert.equal(freshS2.status, PaymentStatus.ACTIVE);
   });
+
+  test('Issue #5: ObservationNormalizer extracts reference numbers across varied Indian banking formats', () => {
+    const receivingAccountId = '00000000-0000-0000-0000-000000000002';
+    const testCases = [
+      { text: 'A/c *1234 credited by Rs. 500.00 on 19-Oct-26 Ref no 612345678901', expectedRef: '612345678901' },
+      { text: 'Rs. 250.00 received in your account. Ref no. 987654321098. UPI Txn', expectedRef: '987654321098' },
+      { text: 'Dear Customer, INR 1,000.00 credited via UPI:612398745612 to A/C *5678', expectedRef: '612398745612' },
+      { text: 'Money received: INR 75.00 from user@okaxis UPI Ref: 123456789012', expectedRef: '123456789012' }
+    ];
+
+    for (const tc of testCases) {
+      const normalized = ObservationNormalizer.normalize({
+        source: 'ANDROID_OBSERVER',
+        receivingAccountId,
+        rawPayload: { text: tc.text }
+      });
+      assert.equal(normalized.bankReferenceNumber, tc.expectedRef, `Failed for text: ${tc.text}`);
+    }
+  });
+
+  test('Issue #5: findRecentlyExpiredOrFailed includes CANCELLED sessions to prevent payment hijacking', () => {
+    const sessionRepo = new PaymentSessionRepository(testDb);
+    const accountRepo = new ReceivingAccountRepository(testDb);
+    const merchantId = '00000000-0000-0000-0000-000000000001';
+    const recAcc = accountRepo.create({
+      merchantId,
+      upiId: `cancel-${crypto.randomUUID().slice(0, 8)}@okaxis`,
+      payeeName: 'Test Holder',
+      provider: 'AXIS_BANK'
+    });
+
+    const cancelledSession = sessionRepo.create({
+      merchantId,
+      receivingAccountId: recAcc.id,
+      orderId: `CANCEL-TEST-${Date.now()}`,
+      amountPaise: 45000n,
+      customerDetails: { phone: '9876543210' },
+      method: 'UPI'
+    });
+
+    sessionRepo.transitionToTerminal(cancelledSession.id, PaymentStatus.CANCELLED);
+
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const recent = sessionRepo.findRecentlyExpiredOrFailed(recAcc.id, thirtyMinutesAgo);
+
+    const found = recent.find(s => s.id === cancelledSession.id);
+    assert.ok(found, 'CANCELLED session must be returned by findRecentlyExpiredOrFailed');
+    assert.equal(found.status, PaymentStatus.CANCELLED);
+  });
+
+  test('Issue #5: Duplicate UTR conflict within 60s raises support ticket and does not overwrite completed session', () => {
+    const sessionRepo = new PaymentSessionRepository(testDb);
+    const accountRepo = new ReceivingAccountRepository(testDb);
+    const obsRepo = new ObservationRepository(testDb);
+    const ticketRepo = new SupportTicketRepository(testDb);
+    const auditRepo = new AuditLogRepository(testDb);
+    const merchantId = '00000000-0000-0000-0000-000000000001';
+    const recAcc = accountRepo.create({
+      merchantId,
+      upiId: `dup-${crypto.randomUUID().slice(0, 8)}@okaxis`,
+      payeeName: 'Dup Utr Test',
+      provider: 'AXIS_BANK'
+    });
+
+    const customerRepo = new CustomerRepository(testDb);
+    const customer = customerRepo.create({ fullName: 'Dup Customer', mobileNumber: '9876543210' });
+
+    // 1. Create a session and transition INITIATED -> ACTIVE
+    const session = sessionRepo.create({
+      merchantId,
+      customerId: customer.id,
+      receivingAccountId: recAcc.id,
+      orderId: `DUP-UTR-ORDER-${Date.now()}`,
+      amountPaise: 65000n,
+      customerDetails: { phone: '9876543210' },
+      method: 'UPI'
+    });
+    sessionRepo.acquireSlotAtomic(session.id, recAcc.id, 300000);
+
+    const obs1 = obsRepo.create({
+      receivingAccountId: recAcc.id,
+      source: 'ANDROID_OBSERVER',
+      amountPaise: 65000n,
+      bankReferenceNumber: '111111111111',
+      fingerprintHash: `fp_first_success_utr_${Date.now()}`,
+      observedAt: new Date()
+    });
+
+    sessionRepo.recordVerificationSource(session.id, 'ANDROID_OBSERVER', obs1.id, { finalizeSuccess: true });
+
+    // 2. Attribution engine with ticketRepo
+    let duplicateEventFired = false;
+    const attribution = new AttributionEngine({
+      sessionRepo,
+      obsRepo,
+      ticketRepo,
+      auditRepo,
+      gracePeriodMs: 0,
+      eventEmitter: {
+        emit: (event) => {
+          if (event === 'PAYMENT.DUPLICATE_DETECTED') duplicateEventFired = true;
+        }
+      }
+    });
+
+    // 3. Second incoming observation for the same amount but different UTR (222222222222)
+    const normObs2 = {
+      source: 'ANDROID_OBSERVER',
+      receivingAccountId: recAcc.id,
+      amountPaise: 65000n,
+      observedAt: new Date(),
+      bankReferenceNumber: '222222222222',
+      fingerprintHash: `fp_second_conflict_utr_${Date.now()}`,
+      rawPayload: { sender: 'HDFCBK', text: 'Rs. 650.00 credited Ref no 222222222222' }
+    };
+
+    const result = attribution.processObservation(normObs2);
+
+    assert.equal(result.attributed, false);
+    assert.ok(duplicateEventFired, 'PAYMENT.DUPLICATE_DETECTED event must fire');
+
+    // Verify support ticket was created
+    const tickets = testDb.query('SELECT * FROM support_tickets WHERE payment_id = ?', [session.id]);
+    assert.ok(tickets.length >= 1, 'Reconciliation support ticket must be raised for duplicate payment');
+    assert.match(tickets[0].subject, /DUPLICATE PAYMENT DETECTED/);
+  });
+
+  test('Issue #12: VerificationPipeline honors processingExpiresAt during PROCESSING status', () => {
+    const sessionRepo = new PaymentSessionRepository(testDb);
+    const accountRepo = new ReceivingAccountRepository(testDb);
+    const obsRepo = new ObservationRepository(testDb);
+    const merchantId = '00000000-0000-0000-0000-000000000001';
+    const recAcc = accountRepo.create({
+      merchantId,
+      upiId: `proc-${crypto.randomUUID().slice(0, 8)}@okaxis`,
+      payeeName: 'Proc Test',
+      provider: 'AXIS_BANK'
+    });
+
+    // Session whose initial 5-min active timer expired, but processing timer has 3 minutes remaining
+    const session = sessionRepo.create({
+      merchantId,
+      receivingAccountId: recAcc.id,
+      orderId: `PROC-TIMER-${Date.now()}`,
+      amountPaise: 50000n,
+      customerDetails: { phone: '9876543210' },
+      method: 'UPI'
+    });
+
+    sessionRepo.acquireSlotAtomic(session.id, recAcc.id, 300000);
+    sessionRepo.transitionToProcessing(session.id);
+
+    const pastExpiresAt = new Date(Date.now() - 60000).toISOString();
+    const futureProcExpiresAt = new Date(Date.now() + 180000).toISOString();
+
+    testDb.execute(`
+      UPDATE payment_sessions
+      SET expires_at = ?, processing_expires_at = ?
+      WHERE id = ?
+    `, [pastExpiresAt, futureProcExpiresAt, session.id]);
+
+    const pipeline = new PaymentVerificationPipeline({
+      db: testDb,
+      sessionRepo,
+      obsRepo,
+      attributionEngine: new AttributionEngine({ sessionRepo, obsRepo, gracePeriodMs: 0 })
+    });
+
+    const result = pipeline.process({
+      source: 'SMS_GATEWAY',
+      receivingAccountId: recAcc.id,
+      paymentSessionId: session.id,
+      sender: 'HDFCBK',
+      rawText: 'Rs 500.00 credited to account ending 1234 on 19-Oct-26. UTR 918273645102.',
+      receivedAt: new Date()
+    });
+
+    assert.notEqual(result.finalStatus, 'REJECTED', 'Observation must not be rejected as SESSION_EXPIRED while processingExpiresAt is active');
+    assert.notEqual(result.failingCondition, 'SESSION_EXPIRED');
+  });
+
+  test('Issue #12: Crash recovery promotes attributed PROCESSING sessions to SUCCESS instead of FAILED', () => {
+    const sessionRepo = new PaymentSessionRepository(testDb);
+    const accountRepo = new ReceivingAccountRepository(testDb);
+    const merchantId = '00000000-0000-0000-0000-000000000001';
+    const recAcc = accountRepo.create({
+      merchantId,
+      upiId: `rec-${crypto.randomUUID().slice(0, 8)}@okaxis`,
+      payeeName: 'Recovery Test',
+      provider: 'AXIS_BANK'
+    });
+
+    const session = sessionRepo.create({
+      merchantId,
+      receivingAccountId: recAcc.id,
+      orderId: `RECOVER-ATTRIB-${Date.now()}`,
+      amountPaise: 35000n,
+      customerDetails: { phone: '9876543210' },
+      method: 'UPI'
+    });
+
+    sessionRepo.acquireSlotAtomic(session.id, recAcc.id, 300000);
+    sessionRepo.transitionToProcessing(session.id);
+
+    const obsId = crypto.randomUUID();
+    testDb.execute(`
+      INSERT INTO payment_observations (id, receiving_account_id, source, amount_paise, bank_reference_number, fingerprint_hash, observed_at)
+      VALUES (?, ?, 'ANDROID_OBSERVER', 35000, '555666777888', ?, datetime('now'))
+    `, [obsId, recAcc.id, `fp_recover_attrib_${Date.now()}`]);
+
+    // Set session in PROCESSING status with overdue processing_expires_at but already attributed
+    const overdueTime = new Date(Date.now() - 10000).toISOString();
+    testDb.execute(`
+      UPDATE payment_sessions
+      SET processing_expires_at = ?, verification_level = 1, attributed_observation_id = ?
+      WHERE id = ?
+    `, [overdueTime, obsId, session.id]);
+
+    const timingEngine = new TimingEngine({ db: testDb, sessionRepo, accountRepo });
+    const queueEngine = new QueueEngine({ db: testDb, sessionRepo, accountRepo, timingEngine });
+    let successFired = false;
+
+    const recovery = new RecoveryEngine({
+      db: testDb,
+      sessionRepo,
+      accountRepo,
+      queueEngine,
+      timingEngine,
+      eventEmitter: {
+        emit: (event) => {
+          if (event === 'PAYMENT.SUCCESS') successFired = true;
+        }
+      }
+    });
+
+    const stats = recovery.recover();
+    const updated = sessionRepo.findById(session.id);
+
+    assert.equal(updated.status, PaymentStatus.SUCCESS, 'Attributed PROCESSING session must recover to SUCCESS');
+    assert.ok(successFired, 'PAYMENT.SUCCESS event must fire on recovery of attributed session');
+  });
 });
+
