@@ -253,14 +253,14 @@
         targetUrl = `${this.options.portalUrl}/checkout/demo`;
       }
 
-      // If running on localhost / 127.0.0.1 and targetUrl points to remote domain, normalize to localhost host
+      // If running on localhost / 127.0.0.1 and targetUrl points to remote external origin, keep path and point to local host
       if (isBrowser && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-        if (targetUrl.includes('gauravtesting.online')) {
-          try {
-            const parsed = new URL(targetUrl);
+        try {
+          const parsed = new URL(targetUrl, window.location.origin);
+          if (parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1' && !this.options.portalUrl) {
             targetUrl = `${window.location.protocol}//${window.location.host}${parsed.pathname}${parsed.search}`;
-          } catch {}
-        }
+          }
+        } catch {}
       }
 
       // Add embedded flag and custom params

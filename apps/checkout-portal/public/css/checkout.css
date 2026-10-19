@@ -3033,3 +3033,22 @@
     .ypg-btn-downtime-alt:hover {
       opacity: 0.9;
     }
+
+    /* ULTRA-COMPACT MOBILE DEVICES (<= 360px) */
+    @media (max-width: 360px) {
+      .ypg-body {
+        padding: 10px 10px 120px 10px !important;
+      }
+      .ypg-header {
+        padding: 10px 12px !important;
+      }
+      .ypg-otp-control {
+        font-size: 18px !important;
+        letter-spacing: 6px !important;
+        padding: 8px !important;
+      }
+      .ypg-qr-img {
+        max-width: 170px !important;
+        max-height: 170px !important;
+      }
+    }
