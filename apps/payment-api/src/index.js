@@ -48,6 +48,7 @@ import { registerAdminRoutes } from './routes/admin.routes.js';
 import { registerCustomerRoutes } from './routes/customer.routes.js';
 import { registerDeviceRoutes } from './routes/device.routes.js';
 import { getWhatsAppBerryService, WhatsAppBerryService } from './services/whatsapp-berry.service.js';
+import { ObserverPollerService } from './services/observer-poller.service.js';
 
 export function createPaymentApp(customDb = null, options = {}) {
   const db = customDb || getDatabase();
@@ -228,72 +229,6 @@ export function createPaymentApp(customDb = null, options = {}) {
     }
   });
 
-  // Active 30-Second Verification Polling Orchestrator (Triple Verification Standard):
-  // Concurrently sweeps Gmail, Google Messages SMS, and Android Observer every 1.5s
-  // Continues polling for remaining sources until Level 3 (Triple Verification) is reached or 30s window finishes!
-  const activeSweepTimers = new Set();
-
-  eventEmitter.on('SESSION.PROCESSING', (data) => {
-    const sessionId = data.sessionId;
-    let sweepCount = 0;
-    const maxSweeps = 20; // 20 sweeps * 1.5s = 30 seconds
-
-    const sweepTimer = setInterval(async () => {
-      try {
-        sweepCount++;
-        const current = sessionRepo.findById(sessionId);
-
-        // Stop polling if session is terminal failed/expired/cancelled, or reached full Triple Verification (level >= 3), or exceeded 30s
-        const isCompleteOrCancelled = !current ||
-          current.status === PaymentStatus.FAILED ||
-          current.status === PaymentStatus.EXPIRED ||
-          current.status === PaymentStatus.CANCELLED ||
-          (current.verificationLevel >= 3) ||
-          sweepCount >= maxSweeps;
-
-        if (isCompleteOrCancelled) {
-          clearInterval(sweepTimer);
-          activeSweepTimers.delete(sweepTimer);
-          return;
-        }
-
-        // Sweep 1: Google Messages Web SMS
-        try {
-          const smsPort = Number(process.env.SMS_OBSERVER_PORT || 6002);
-          fetch(`http://localhost:${smsPort}/api/sweep`, { method: 'POST', signal: AbortSignal.timeout(1200) }).catch(() => {});
-        } catch {}
-
-        // Sweep 2: Gmail Inbox
-        try {
-          const gmailPort = Number(process.env.GMAIL_OBSERVER_PORT || 6003);
-          fetch(`http://localhost:${gmailPort}/api/sweep`, { method: 'POST', signal: AbortSignal.timeout(1200) }).catch(() => {});
-        } catch {}
-
-        // Sweep 3: Check pending/unattributed Android push notifications in DB
-        try {
-          const unattributed = obsRepo.findUnattributed(current.receivingAccountId);
-          for (const obs of unattributed) {
-            attributionEngine.processObservation({
-              source: obs.source,
-              receivingAccountId: obs.receivingAccountId,
-              amountPaise: obs.amountPaise,
-              observedAt: obs.observedAt,
-              bankReferenceNumber: obs.bankReferenceNumber,
-              senderVpa: obs.senderVpa,
-              rawPayload: obs.rawPayload,
-              fingerprintHash: obs.fingerprintHash
-            });
-          }
-        } catch {}
-      } catch {
-        clearInterval(sweepTimer);
-        activeSweepTimers.delete(sweepTimer);
-      }
-    }, 1500);
-
-    if (sweepTimer.unref) sweepTimer.unref();
-    activeSweepTimers.add(sweepTimer);
-  });
 
   // Continuous 1-second background queue sync and auto-expiry daemon
   const queueSyncDaemon = setInterval(() => {
@@ -338,52 +273,19 @@ export function createPaymentApp(customDb = null, options = {}) {
 
   if (queueSyncDaemon.unref) queueSyncDaemon.unref();
 
-  // Continuous 1-Second Aggressive Polling Daemon across SMS Gateway & Gmail Observers
-  const aggressivePollerDaemon = setInterval(async () => {
-    try {
-      // Find all active/processing sessions currently waiting for bank confirmation
-      const activeSessions = db.query(`
-        SELECT id, receiving_account_id, amount_paise, status
-        FROM payment_sessions
-        WHERE status IN ('ACTIVE', 'PROCESSING') AND method = 'UPI'
-      `);
-
-      if (activeSessions.length === 0) return;
-
-      // 1. Poll SMS Observer
-      try {
-        const smsPort = Number(process.env.SMS_OBSERVER_PORT || 6002);
-        fetch(`http://localhost:${smsPort}/api/sweep`, { method: 'POST', signal: AbortSignal.timeout(800) }).catch(() => {});
-      } catch {}
-
-      // 2. Poll Gmail Observer
-      try {
-        const gmailPort = Number(process.env.GMAIL_OBSERVER_PORT || 6003);
-        fetch(`http://localhost:${gmailPort}/api/sweep`, { method: 'POST', signal: AbortSignal.timeout(800) }).catch(() => {});
-      } catch {}
-
-      // 3. Sweep any pending unattributed observations in DB matching active sessions
-      for (const session of activeSessions) {
-        try {
-          const unattributed = obsRepo.findUnattributed(session.receiving_account_id);
-          for (const obs of unattributed) {
-            attributionEngine.processObservation({
-              source: obs.source,
-              receivingAccountId: obs.receivingAccountId,
-              amountPaise: obs.amountPaise,
-              observedAt: obs.observedAt,
-              bankReferenceNumber: obs.bankReferenceNumber,
-              senderVpa: obs.senderVpa,
-              rawPayload: obs.rawPayload,
-              fingerprintHash: obs.fingerprintHash
-            });
-          }
-        } catch {}
-      }
-    } catch {}
-  }, 1000);
-
-  if (aggressivePollerDaemon.unref) aggressivePollerDaemon.unref();
+  // Consolidated, Coordinated Observer Polling & Verification Daemon
+  // Eliminates duplicate HTTP sweeps, enforces 1.5s-2s cooldown, and prevents SQLite write contention
+  const observerPollerService = new ObserverPollerService({
+    db,
+    sessionRepo,
+    obsRepo,
+    attributionEngine,
+    eventEmitter,
+    pollIntervalMs: Number(process.env.OBSERVER_POLL_INTERVAL_MS || 1500),
+    minSweepCooldownMs: Number(process.env.OBSERVER_SWEEP_COOLDOWN_MS || 2000),
+    smsPort: Number(process.env.SMS_OBSERVER_PORT || 6002),
+    gmailPort: Number(process.env.GMAIL_OBSERVER_PORT || 6003)
+  });
 
   // Execute crash recovery on boot
   const recoveryStats = recoveryEngine.recover();
@@ -432,7 +334,8 @@ export function createPaymentApp(customDb = null, options = {}) {
     defaultMerchant,
     checkoutBaseUrl,
     whatsappBerryService,
-    webhookEngine
+    webhookEngine,
+    observerPollerService
   };
 
   registerPaymentRoutes(server, context);
@@ -444,11 +347,7 @@ export function createPaymentApp(customDb = null, options = {}) {
 
   function destroy() {
     clearInterval(queueSyncDaemon);
-    clearInterval(aggressivePollerDaemon);
-    for (const timer of activeSweepTimers) {
-      clearInterval(timer);
-    }
-    activeSweepTimers.clear();
+    observerPollerService.destroy();
     timingEngine.destroy();
     if (typeof attributionEngine.destroy === 'function') {
       attributionEngine.destroy();
