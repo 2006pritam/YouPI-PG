@@ -115,8 +115,8 @@ export class CustomerRepository {
     if (!normalized) return null;
     const clean10 = normalized.slice(-10);
     const row = this.db.queryOne(
-      'SELECT * FROM customers WHERE mobile_number IN (?, ?, ?)',
-      [normalized, clean10, '+91' + clean10]
+      'SELECT * FROM customers WHERE mobile_number = ? OR mobile_number = ? OR mobile_number = ? OR mobile_number LIKE ?',
+      [normalized, clean10, '+91' + clean10, '%' + clean10]
     );
     if (!row) return null;
     return this.mapRow(row);

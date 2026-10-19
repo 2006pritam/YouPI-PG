@@ -8,6 +8,21 @@ const OTP_MAX_ATTEMPTS = 5;
 const OTP_RESEND_COOLDOWN_MS = 30 * 1000;
 
 /**
+ * Safely masks customer email address for public responses without leaking length or erroring on short strings.
+ * @param {string} email
+ * @returns {string | null}
+ */
+function maskEmail(email) {
+  if (!email || typeof email !== 'string') return null;
+  const atIndex = email.indexOf('@');
+  if (atIndex <= 0) return '***';
+  const user = email.slice(0, atIndex);
+  const domain = email.slice(atIndex + 1);
+  const visible = user.slice(0, Math.min(2, user.length));
+  return `${visible}***@${domain || '***'}`;
+}
+
+/**
  * Registers gateway-owned customer identity and session routes.
  * @param {HttpServer} server
  * @param {{
@@ -130,6 +145,9 @@ export function registerCustomerRoutes(server, ctx) {
 
     const ip = req.socket?.remoteAddress || '127.0.0.1';
     const now = Date.now();
+    if (checkUserRateMap.size > 10000) {
+      checkUserRateMap.clear();
+    }
     const timestamps = checkUserRateMap.get(ip) || [];
     const recent = timestamps.filter(t => now - t < 60000);
     if (recent.length >= 60) {
@@ -148,7 +166,7 @@ export function registerCustomerRoutes(server, ctx) {
       customer: existingUser ? {
         id: existingUser.id,
         name: existingUser.name,
-        email: existingUser.email ? `${existingUser.email.slice(0, 2)}***@${existingUser.email.split('@')[1] || '***'}` : null,
+        email: maskEmail(existingUser.email),
         mobileNumber: cleanMobile
       } : null
     });
