@@ -4181,14 +4181,35 @@
           <td>${escapeHtml(o.customerPhone || '-')}</td>
           <td>${new Date(o.placedAt).toLocaleTimeString()}</td>
           <td>
-            <a href="${API_BASE}/api/v1/orders/${o.orderId}/cod" target="_blank" class="btn btn-secondary" style="padding:0.25rem 0.5rem; font-size:0.75rem; text-decoration:none;">
+            <button type="button" data-cod-order="${escapeHtml(o.orderId)}" class="btn btn-secondary" style="padding:0.25rem 0.5rem; font-size:0.75rem;">
               API ↗
-            </a>
+            </button>
           </td>
         </tr>
       `).join('');
       } catch (e) { }
     }
+
+    // The COD order API only returns the customer to an authenticated caller, and a plain
+    // link would navigate without the admin token (authedFetch only covers /admin/ routes),
+    // so fetch it with the bearer and show the JSON in a new tab.
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-cod-order]');
+      if (!btn) return;
+      const tab = window.open('', '_blank');
+      try {
+        await window.__youpiAdminAuth.ensure();
+        const res = await fetch(`${API_BASE}/api/v1/orders/${encodeURIComponent(btn.dataset.codOrder)}/cod`, {
+          headers: { Authorization: 'Bearer ' + window.__youpiAdminAuth.token() }
+        });
+        const body = JSON.stringify(await res.json(), null, 2);
+        const url = URL.createObjectURL(new Blob([body], { type: 'application/json' }));
+        if (tab) tab.location.href = url; else window.open(url, '_blank');
+      } catch (err) {
+        if (tab) tab.close();
+        alert('Could not load the COD order details.');
+      }
+    });
 
     // --- TRANSACTIONS LEDGER ---
     async function fetchPaymentsLedger() {
