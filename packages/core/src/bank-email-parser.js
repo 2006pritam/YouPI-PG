@@ -31,14 +31,21 @@ export class BankEmailParser {
     if (!combinedText) return null;
 
     // Check if email represents an incoming credit/payment
-    const creditKeywords = /(credited|credit|received|deposit|payment received|payment|upi\/cr|transferred)/i;
+    const creditKeywords = /\b(credited|credit|received|deposit|deposited|payment received|upi\/cr)\b/i;
     if (!creditKeywords.test(combinedText)) {
       return null; // Ignore non-credit alerts
     }
 
-    // Ignore pure debit notifications if no credit indicator exists
-    if (/(debited|withdrawn|sent rs|paid rs)/i.test(combinedText) && !/(credited|credit|received|deposit)/i.test(combinedText)) {
-      return null;
+    // Reject debit notifications:
+    const debitIdx = combinedText.search(/\b(?:debited|withdrawn|deducted|spent|paid rs|sent rs)\b/i);
+    const creditIdx = combinedText.search(/\b(?:credited|credit|received|deposit|deposited)\b/i);
+    if (debitIdx !== -1) {
+      if (creditIdx === -1 || debitIdx < creditIdx) {
+        return null;
+      }
+      if (/\b(?:debited\s*(?:from|by|for)|is\s+debited|has\s+been\s+debited)\b/i.test(combinedText)) {
+        return null;
+      }
     }
 
     // 1. Extract Monetary Amount using Intelligent Multi-Pattern Extractor
