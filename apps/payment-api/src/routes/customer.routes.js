@@ -46,6 +46,18 @@ export function registerCustomerRoutes(server, ctx) {
 
   // Throttles check-user inquiries to prevent bulk mobile number scanning / user enumeration.
   const checkUserRateMap = new Map();
+  const checkUserRateCleaner = setInterval(() => {
+    const now = Date.now();
+    for (const [ip, timestamps] of checkUserRateMap) {
+      const active = Array.isArray(timestamps) ? timestamps.filter(t => now - t < 60000) : [];
+      if (active.length === 0) {
+        checkUserRateMap.delete(ip);
+      } else {
+        checkUserRateMap.set(ip, active);
+      }
+    }
+  }, 60000);
+  if (checkUserRateCleaner.unref) checkUserRateCleaner.unref();
 
   /**
    * Resolves the configured cooldown between consecutive OTP dispatches.
@@ -118,15 +130,14 @@ export function registerCustomerRoutes(server, ctx) {
 
     const ip = req.socket?.remoteAddress || '127.0.0.1';
     const now = Date.now();
-    for (const [key, at] of checkUserRateMap) {
-      if (now - at > 60000) checkUserRateMap.delete(key);
-    }
-    const ipCount = Array.from(checkUserRateMap.entries()).filter(([k]) => k.startsWith(ip)).length;
-    if (ipCount >= 60) {
+    const timestamps = checkUserRateMap.get(ip) || [];
+    const recent = timestamps.filter(t => now - t < 60000);
+    if (recent.length >= 60) {
       HttpServer.json(res, 429, { error: 'Too many requests. Please try again in a minute.' });
       return;
     }
-    checkUserRateMap.set(`${ip}_${cleanMobile}_${now}`, now);
+    recent.push(now);
+    checkUserRateMap.set(ip, recent);
 
     const existingUser = ctx.customerRepo.findByMobile(cleanMobile);
 

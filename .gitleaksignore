@@ -1,0 +1,2 @@
+# Gitleaks ignore file for false positives in automated unit test fixtures
+e6a819556326f74bbfbecae33a0144bc65f129b1:apps/payment-api/src/__tests__/gateway-hardening-invariants.test.js:generic-api-key:369
