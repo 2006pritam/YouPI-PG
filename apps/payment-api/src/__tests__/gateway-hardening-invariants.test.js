@@ -535,7 +535,7 @@ describe('Gateway Hardening & Invariant Protection Test Suite (#23, #25, #26, #2
       method: 'POST',
       headers: {
         'x-merchant-id': '00000000-0000-0000-0000-000000000001',
-        'x-merchant-key': 'invalid_secret_key_123'
+        'x-merchant-key': 'invalid-test-merchant-key'
       },
       body: {
         orderId: `KEY-FAIL-${Date.now()}`,
