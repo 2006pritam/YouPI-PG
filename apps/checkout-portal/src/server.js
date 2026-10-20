@@ -19,6 +19,45 @@ const BASE_SECURITY_HEADERS = Object.freeze({
 const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
 /**
+ * Origins allowed to embed the checkout page, from CHECKOUT_FRAME_ANCESTORS
+ * (comma or space separated, e.g. "https://shop.example.com"). youpi.js opens the
+ * checkout in an iframe on the merchant's own site, which `frame-ancestors 'self'`
+ * blocks whenever the store and the portal are on different origins. Anything that
+ * is not a plain http(s) origin is ignored, so the CSP cannot be widened by accident.
+ */
+export function frameAncestorOrigins(raw = process.env.CHECKOUT_FRAME_ANCESTORS) {
+  const origins = [];
+  for (const entry of String(raw || '').split(/[\s,]+/)) {
+    if (!entry) continue;
+    try {
+      const url = new URL(entry);
+      if ((url.protocol === 'https:' || url.protocol === 'http:') && entry.replace(/\/$/, '') === url.origin) {
+        origins.push(url.origin);
+      }
+    } catch {}
+  }
+  return origins;
+}
+
+/**
+ * Headers for the embeddable checkout page.
+ *
+ * The checkout page is embedded cross-origin by merchant storefronts, so the default is
+ * permissive (`frame-ancestors *`). Deployments can pin the allowlist with
+ * CHECKOUT_FRAME_ANCESTORS; when set, only those origins (plus the portal itself) may
+ * frame the page. X-Frame-Options is dropped in that case because it cannot express a
+ * list and would otherwise block the allowlisted storefronts.
+ */
+function checkoutFrameHeaders() {
+  const origins = frameAncestorOrigins();
+  return {
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Content-Security-Policy': `default-src 'self' data: blob:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors ${origins.length ? `'self' ${origins.join(' ')}` : '*'}; base-uri 'none'; form-action 'self'; object-src 'none'`
+  };
+}
+
+/**
  * Escapes a value for interpolation into HTML text or attribute context.
  * Order ids, merchant names and branding fields are attacker-influenced, so they must
  * never be injected raw into the checkout template.
@@ -64,29 +103,6 @@ export function serializeForScript(value) {
 
 // Placeholders that land inside a <script> block rather than HTML markup.
 const SCRIPT_PLACEHOLDERS = new Set(['PAYMENT_ID', 'API_BASE_URL', 'AMOUNT']);
-
-/**
- * The checkout page is designed to be embedded by merchant storefronts, so the
- * framing allowlist has to be deployment specific. Deployments can pin it with
- * CHECKOUT_FRAME_ANCESTORS (e.g. "https://shop.example.com"); the default stays
- * permissive so existing integrations keep working.
- */
-function resolveFrameAncestors() {
-  const configured = (process.env.CHECKOUT_FRAME_ANCESTORS || '').trim();
-  return configured || '*';
-}
-
-/**
- * Security headers for the embeddable checkout pages. Built per response so the
- * frame-ancestors allowlist can be pinned per deployment via CHECKOUT_FRAME_ANCESTORS.
- */
-function checkoutFrameHeaders() {
-  return {
-    'X-Content-Type-Options': 'nosniff',
-    'Referrer-Policy': 'strict-origin-when-cross-origin',
-    'Content-Security-Policy': `default-src 'self' data: blob:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors ${resolveFrameAncestors()}; base-uri 'none'; form-action 'self'; object-src 'none'`
-  };
-}
 
 /**
  * Replaces {{PLACEHOLDER}} tokens in the checkout template.
@@ -386,7 +402,7 @@ export class CheckoutServer {
           'Pragma': 'no-cache',
           'Expires': '0',
           'Access-Control-Allow-Origin': '*',
-          ...checkoutFrameHeaders()
+          ...BASE_SECURITY_HEADERS
         });
         res.end(svg);
         return;
