@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HttpServer } from '../server.js';
 import { ObservationNormalizer, BankSmsParser, BankEmailParser, generateQrSvg } from '@youpi/core';
-import { toRupeesString, toPaise, verifyHmac, resolveRuntimeUrls, resolveSecret, safeEqual, hasBearer, getObserverToken } from '@youpi/common';
+import { toRupeesString, toPaise, verifyHmac, resolveRuntimeUrls, resolveSecret, safeEqual, hasBearer, getObserverToken, findUpiProviderByPackage } from '@youpi/common';
 import { isAdminRequest } from '../auth-guard.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -38,13 +38,14 @@ export function registerPollerRoutes(server, ctx) {
       HttpServer.json(res, 401, { error: 'Unauthorized', code: 'AUTH_REQUIRED' });
       return;
     }
+    const sixtySecsAgo = new Date(Date.now() - 60000).toISOString();
     const activeSessions = ctx.db.query(`
       SELECT id, order_id, receiving_account_id, amount_paise, status, verification_level, expires_at, processing_expires_at, completed_at
       FROM payment_sessions
       WHERE status IN ('ACTIVE', 'PROCESSING')
-         OR (status = 'SUCCESS' AND verification_level < 2 AND completed_at >= datetime('now', '-60 seconds'))
+         OR (status = 'SUCCESS' AND verification_level < 2 AND completed_at >= ?)
       ORDER BY created_at DESC
-    `);
+    `, [sixtySecsAgo]);
 
     const sessions = activeSessions.map(s => ({
       id: s.id,
@@ -302,6 +303,35 @@ export function registerPollerRoutes(server, ctx) {
     let bankRef = body.bankReferenceNumber || body.utr;
     let senderVpa = body.senderVpa;
     let observedAt = body.observedAt ? new Date(body.observedAt) : new Date();
+
+    // Security Invariant (Issue #24): Validate Android notification package name if notification origin
+    const notificationPackage = body.rawNotification?.package ? String(body.rawNotification.package).trim().toLowerCase() : null;
+    if (notificationPackage) {
+      const isKnownUpi = Boolean(findUpiProviderByPackage(notificationPackage));
+      const KNOWN_NOTIFICATION_PACKAGES = new Set([
+        'com.google.android.apps.messaging',
+        'com.samsung.android.messaging',
+        'com.fampay.in',
+        'com.sbi.lotusintouch',
+        'com.snapwork.hdfc',
+        'com.csam.icici.bank.imobile',
+        'com.axis.mobile',
+        'com.msf.kbank.mobile',
+        'com.bankofbaroda.mconnect',
+        'com.idfcfirstbank.optimus',
+        'com.infrasofttech.indianbank',
+        'com.canarabank.mobility',
+        'com.infrasoft.uboi',
+        'com.fedmobile'
+      ]);
+      if (!isKnownUpi && !KNOWN_NOTIFICATION_PACKAGES.has(notificationPackage)) {
+        HttpServer.json(res, 400, {
+          accepted: false,
+          error: `Untrusted Android notification package: ${notificationPackage}`
+        });
+        return;
+      }
+    }
 
     // Check for raw SMS text inside body or rawNotification
     const rawText = body.body || body.sms || body.rawSms || body.message || body.text || body.rawNotification?.text;

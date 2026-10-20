@@ -103,6 +103,7 @@ describe('Webhook Engine Integration Tests', () => {
     const rawSig = hook.headers['x-gateway-signature'].replace('sha256=', '');
     const isValid = verifyHmac(JSON.stringify(hook.body), merchant.webhookSecret, rawSig);
     assert.equal(isValid, true);
+    assert.ok('utr' in hook.body);
 
     // Verify recorded in DB as successful
     const delivery = db.queryOne('SELECT * FROM webhook_deliveries WHERE id = ?', [result.deliveryId]);
@@ -200,5 +201,35 @@ describe('Webhook Engine Integration Tests', () => {
 
     const updatedDelivery = db.queryOne('SELECT * FROM webhook_deliveries WHERE id = ?', [result.deliveryId]);
     assert.equal(updatedDelivery.is_successful, 1);
+  });
+
+  test('persists delivery failure record when merchant webhookSecret is missing', async () => {
+    const merchantNoSecret = merchantRepo.create({
+      businessName: 'No Secret Store',
+      slug: 'no-secret-store',
+      contactEmail: 'nosecret@example.com',
+      contactPhone: '9876543210',
+      webhookUrl: `http://localhost:${receiverPort}/webhook-no-secret`,
+      webhookSecret: 'temp_secret'
+    });
+    // Explicitly set secret to empty string in DB to test missing secret guard
+    db.execute("UPDATE merchants SET webhook_secret = '' WHERE id = ?", [merchantNoSecret.id]);
+
+    const session = sessionRepo.create({
+      merchantId: merchantNoSecret.id,
+      orderId: 'HOOK-ORD-NO-SEC',
+      amountPaise: 10000n
+    });
+
+    const res = await webhookEngine.dispatch('SUCCESS', session);
+    assert.equal(res.delivered, false);
+    assert.equal(res.status, 500);
+    assert.ok(res.deliveryId);
+
+    const recorded = db.queryOne('SELECT * FROM webhook_deliveries WHERE id = ?', [res.deliveryId]);
+    assert.ok(recorded);
+    assert.equal(recorded.is_successful, 0);
+    assert.equal(recorded.response_status, 500);
+    assert.match(recorded.response_body, /webhookSecret is not configured/);
   });
 });

@@ -1,5 +1,5 @@
 import { HttpServer } from '../server.js';
-import { toPaise, toRupeesString, resolveRuntimeUrls, PaymentStatus } from '@youpi/common';
+import { toPaise, toRupeesString, resolveRuntimeUrls, PaymentStatus, safeEqual } from '@youpi/common';
 import { isTerminalStatus, toPublicOutcome } from '@youpi/core';
 import { isPaymentOwner } from '../auth-guard.js';
 
@@ -46,6 +46,13 @@ export function registerPaymentRoutes(server, ctx) {
       return;
     }
 
+    if (req.headers['x-merchant-key']) {
+      if (!merchant.webhookSecret || !safeEqual(req.headers['x-merchant-key'].trim(), merchant.webhookSecret)) {
+        HttpServer.json(res, 401, { error: 'Invalid merchant key', code: 'INVALID_MERCHANT_KEY' });
+        return;
+      }
+    }
+
     if (!body.orderId || !body.amount) {
       HttpServer.json(res, 400, { error: 'Missing required fields: orderId and amount.' });
       return;
@@ -87,11 +94,20 @@ export function registerPaymentRoutes(server, ctx) {
       const isStale = (existing.status === PaymentStatus.ACTIVE && existing.expiresAt && existing.expiresAt.getTime() <= now) ||
         (existing.status === PaymentStatus.PROCESSING && existing.processingExpiresAt && existing.processingExpiresAt.getTime() <= now);
       if (isStale) {
-        ctx.sessionRepo.transitionToTerminal(existing.id, PaymentStatus.EXPIRED);
+        const terminalStatus = existing.status === PaymentStatus.PROCESSING ? PaymentStatus.FAILED : PaymentStatus.EXPIRED;
+        ctx.sessionRepo.transitionToTerminal(existing.id, terminalStatus);
         if (existing.receivingAccountId) {
           ctx.queueEngine.promoteNext(existing.receivingAccountId);
         }
-        existing.status = PaymentStatus.EXPIRED;
+        existing.status = terminalStatus;
+        if (ctx.eventEmitter) {
+          ctx.eventEmitter.emit(`PAYMENT.${terminalStatus}`, {
+            paymentId: existing.id,
+            orderId: existing.orderId,
+            merchantId: existing.merchantId,
+            amountPaise: existing.amountPaise
+          });
+        }
       }
 
       // If existing is non-terminal (ACTIVE, PROCESSING, QUEUED, INITIATED):
@@ -127,10 +143,9 @@ export function registerPaymentRoutes(server, ctx) {
         return;
       }
 
-      // CASE 4: Previous session is TERMINAL (FAILED, EXPIRED, CANCELLED) -> RETRY / NEW PAYMENT!
-      const cleanOrderId = body.orderId.replace(/-R\d+$/, '');
-      const randSuffix = Math.floor(1000 + Math.random() * 9000);
-      body.orderId = `${cleanOrderId}-R${randSuffix}`;
+      // CASE 4: Previous session is TERMINAL (FAILED, EXPIRED, CANCELLED) -> RETRY / NEW ATTEMPT!
+      // Invariant: Keep merchant's exact orderId untouched so webhooks, reconciliations, and reporting align.
+      body.orderId = body.orderId.replace(/-R\d+$/, '');
     }
 
     let amountPaise;
@@ -323,11 +338,12 @@ export function registerPaymentRoutes(server, ctx) {
     if (owner && session.customerId && ctx.customerRepo) {
       const c = ctx.customerRepo.findById(session.customerId);
       if (c) {
+        const isOwner = isPaymentOwner(req, session, ctx);
         customer = {
           id: c.id,
           name: c.name,
-          email: c.email,
-          mobileNumber: c.mobileNumber
+          email: isOwner ? c.email : (c.email ? `${c.email.slice(0, 2)}***@${c.email.split('@')[1] || '***'}` : null),
+          mobileNumber: isOwner ? c.mobileNumber : (c.mobileNumber ? `${c.mobileNumber.slice(0, 2)}******${c.mobileNumber.slice(-2)}` : null)
         };
       }
     }
@@ -376,11 +392,12 @@ export function registerPaymentRoutes(server, ctx) {
     if (owner && session.customerId && ctx.customerRepo) {
       const c = ctx.customerRepo.findById(session.customerId);
       if (c) {
+        const isOwner = isPaymentOwner(req, session, ctx);
         customer = {
           id: c.id,
           name: c.name,
-          email: c.email,
-          mobileNumber: c.mobileNumber
+          email: isOwner ? c.email : (c.email ? `${c.email.slice(0, 2)}***@${c.email.split('@')[1] || '***'}` : null),
+          mobileNumber: isOwner ? c.mobileNumber : (c.mobileNumber ? `${c.mobileNumber.slice(0, 2)}******${c.mobileNumber.slice(-2)}` : null)
         };
       }
     }

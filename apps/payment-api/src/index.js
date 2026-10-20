@@ -104,7 +104,8 @@ export function createPaymentApp(customDb = null, options = {}) {
     accountRepo,
     queueEngine,
     timingEngine,
-    auditRepo
+    auditRepo,
+    eventEmitter
   });
 
   const webhookEngine = new WebhookEngine({
@@ -237,25 +238,35 @@ export function createPaymentApp(customDb = null, options = {}) {
 
       // Sweep expired ACTIVE sessions
       const expiredActive = db.query(`
-        SELECT id, receiving_account_id FROM payment_sessions
+        SELECT id, merchant_id, order_id, receiving_account_id FROM payment_sessions
         WHERE status = 'ACTIVE' AND expires_at <= ?
       `, [nowIso]);
 
       for (const row of expiredActive) {
         sessionRepo.transitionToTerminal(row.id, PaymentStatus.EXPIRED);
         server.broadcastSse(row.id, 'status_change', { status: PaymentStatus.EXPIRED });
+        eventEmitter.emit('PAYMENT.EXPIRED', {
+          paymentId: row.id,
+          orderId: row.order_id,
+          merchantId: row.merchant_id
+        });
         handleSlotFreedAndPromote(row.receiving_account_id);
       }
 
       // Sweep failed PROCESSING sessions
       const failedProc = db.query(`
-        SELECT id, receiving_account_id FROM payment_sessions
+        SELECT id, merchant_id, order_id, receiving_account_id FROM payment_sessions
         WHERE status = 'PROCESSING' AND processing_expires_at <= ?
       `, [nowIso]);
 
       for (const row of failedProc) {
         sessionRepo.transitionToTerminal(row.id, PaymentStatus.FAILED);
         server.broadcastSse(row.id, 'status_change', { status: PaymentStatus.FAILED });
+        eventEmitter.emit('PAYMENT.FAILED', {
+          paymentId: row.id,
+          orderId: row.order_id,
+          merchantId: row.merchant_id
+        });
         handleSlotFreedAndPromote(row.receiving_account_id);
       }
 
@@ -272,6 +283,13 @@ export function createPaymentApp(customDb = null, options = {}) {
   }, 1000);
 
   if (queueSyncDaemon.unref) queueSyncDaemon.unref();
+
+  // Continuous Recurring Webhook Retry Daemon (Sweeps and dispatches pending webhook deliveries every 5s)
+  const webhookRetryDaemon = setInterval(() => {
+    webhookEngine.retryPending().catch(() => {});
+  }, Number(process.env.WEBHOOK_RETRY_INTERVAL_MS || 5000));
+
+  if (webhookRetryDaemon.unref) webhookRetryDaemon.unref();
 
   // Consolidated, Coordinated Observer Polling & Verification Daemon
   // Eliminates duplicate HTTP sweeps, enforces 1.5s-2s cooldown, and prevents SQLite write contention
@@ -348,10 +366,14 @@ export function createPaymentApp(customDb = null, options = {}) {
 
   function destroy() {
     clearInterval(queueSyncDaemon);
+    clearInterval(webhookRetryDaemon);
     observerPollerService.destroy();
     timingEngine.destroy();
     if (typeof attributionEngine.destroy === 'function') {
       attributionEngine.destroy();
+    }
+    if (whatsappBerryService && typeof whatsappBerryService.disconnect === 'function') {
+      whatsappBerryService.disconnect({ cleanSession: false }).catch(() => {});
     }
   }
 
