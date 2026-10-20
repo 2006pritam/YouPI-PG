@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BrowserLauncher } from '@youpi/observer-sdk';
+import { getObserverToken } from '@youpi/common';
 import { BankEmailParser } from './parser.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -39,7 +40,13 @@ export class GmailBrowserAutomator {
 
   async fetchActivePaymentAmounts() {
     try {
-      const res = await fetch(`${this.apiBaseUrl}/api/v1/pollers/active-window`, { signal: AbortSignal.timeout(1500) });
+      if (this.gmailPoller && this.gmailPoller.observerClient && typeof this.gmailPoller.observerClient.getActiveWindow === 'function') {
+        return await this.gmailPoller.observerClient.getActiveWindow();
+      }
+      const res = await fetch(`${this.apiBaseUrl}/api/v1/pollers/active-window`, {
+        headers: { 'Authorization': `Bearer ${getObserverToken()}` },
+        signal: AbortSignal.timeout(1500)
+      });
       if (res.ok) {
         const data = await res.json();
         return data.sessions || [];
@@ -216,6 +223,7 @@ export class GmailBrowserAutomator {
         // Target busy or initializing
       }
     }, 2000);
+    if (this.checkTimer.unref) this.checkTimer.unref();
   }
 
   /**
@@ -231,10 +239,15 @@ export class GmailBrowserAutomator {
         // Session idle or updating
       }
     }, 3000);
+    if (this.extractionTimer.unref) this.extractionTimer.unref();
   }
 
   async pollInboxEmails() {
-    const targets = await BrowserLauncher.getTargets(this.debuggingPort);
+    if (this._isPollingInbox) return;
+    this._isPollingInbox = true;
+
+    try {
+      const targets = await BrowserLauncher.getTargets(this.debuggingPort);
     const target = targets.find(t => (t.type === 'page' || !t.type) && t.url && t.url.includes('mail.google.com') && t.webSocketDebuggerUrl)
       || targets.find(t => t.url && t.url.includes('mail.google.com') && t.webSocketDebuggerUrl);
     if (!target) return;
@@ -360,6 +373,9 @@ export class GmailBrowserAutomator {
         }
       }
     }
+  } finally {
+    this._isPollingInbox = false;
+  }
   }
 
   getStatus() {

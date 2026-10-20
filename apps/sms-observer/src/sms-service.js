@@ -84,6 +84,7 @@ export class SmsObserverService {
     this.timer = setInterval(() => {
       this.pollCycle();
     }, this.pollIntervalMs);
+    if (this.timer.unref) this.timer.unref();
   }
 
   stop() {
