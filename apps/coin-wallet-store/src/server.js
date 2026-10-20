@@ -149,19 +149,27 @@ export class CoinWalletStoreServer {
         return;
       }
 
-      // GET /assets/* (serve product screenshots and icons)
-      if (pathname.startsWith('/assets/') && (method === 'GET' || method === 'HEAD')) {
-        const assetName = path.basename(pathname);
-        const assetPath = path.join(__dirname, '../public/assets', assetName);
-        if (fs.existsSync(assetPath)) {
-          const ext = path.extname(assetName).toLowerCase();
-          const contentType = ext === '.png' ? 'image/png' : ext === '.svg' ? 'image/svg+xml' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'application/octet-stream';
+      // SERVE LOCAL PUBLIC ASSETS: /assets/*, /css/*, /js/*
+      if ((pathname.startsWith('/assets/') || pathname.startsWith('/css/') || pathname.startsWith('/js/')) && (method === 'GET' || method === 'HEAD')) {
+        const publicDir = path.resolve(__dirname, '../public');
+        const safeRelative = path.normalize(pathname.replace(/^\//, '')).replace(/^(\.\.(\/|\\|$))+/, '');
+        const targetPath = path.join(publicDir, safeRelative);
+        const rel = path.relative(publicDir, targetPath);
+
+        if (!rel.startsWith('..') && !path.isAbsolute(rel) && fs.existsSync(targetPath) && fs.statSync(targetPath).isFile()) {
+          const ext = path.extname(targetPath).toLowerCase();
+          const contentType = ext === '.css' ? 'text/css; charset=utf-8'
+            : ext === '.js' ? 'application/javascript; charset=utf-8'
+            : ext === '.png' ? 'image/png'
+            : ext === '.svg' ? 'image/svg+xml'
+            : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg'
+            : 'application/octet-stream';
           res.writeHead(200, {
             'Content-Type': contentType,
-            'Cache-Control': 'public, max-age=86400'
+            'Cache-Control': ext === '.css' || ext === '.js' ? 'no-cache' : 'public, max-age=86400'
           });
           if (method === 'HEAD') { res.end(); return; }
-          const stream = fs.createReadStream(assetPath);
+          const stream = fs.createReadStream(targetPath);
           stream.pipe(res);
           return;
         }
@@ -201,8 +209,8 @@ export class CoinWalletStoreServer {
         }
       }
 
-      // REVERSE PROXY: /checkout/* and /icons/* -> Checkout Portal (Port 7000)
-      if (pathname.startsWith('/checkout') || pathname.startsWith('/icons/')) {
+      // REVERSE PROXY: /checkout/*, /icons/*, /css/*, and /js/* -> Checkout Portal (Port 7000)
+      if (pathname.startsWith('/checkout') || pathname.startsWith('/icons/') || pathname.startsWith('/css/') || pathname.startsWith('/js/')) {
         const portalPort = Number(process.env.CHECKOUT_PORT || 7000);
         const proxyReq = http.request({
           hostname: '127.0.0.1',

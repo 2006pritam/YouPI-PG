@@ -71,7 +71,7 @@ export class GmailObserverServer {
         }
         let clientId = '';
         let configuredRedirectUri = '';
-        const apiBase = (this.poller.apiBaseUrl && !this.poller.apiBaseUrl.includes('gauravtesting.online')) ? this.poller.apiBaseUrl : `http://127.0.0.1:${process.env.PAYMENT_API_PORT || 6100}`;
+        const apiBase = this.poller.apiBaseUrl || `http://127.0.0.1:${process.env.PAYMENT_API_PORT || 6100}`;
         try {
           const credRes = await fetch(`${apiBase}/api/v1/admin/gmail/credentials`, { headers: { Authorization: `Bearer ${getObserverToken()}` } });
           if (credRes.ok) {
@@ -127,7 +127,7 @@ export class GmailObserverServer {
           let clientId = '';
           let clientSecret = '';
           let callbackRedirectUri = '';
-          const apiBase = (this.poller.apiBaseUrl && !this.poller.apiBaseUrl.includes('gauravtesting.online')) ? this.poller.apiBaseUrl : `http://127.0.0.1:${process.env.PAYMENT_API_PORT || 6100}`;
+          const apiBase = this.poller.apiBaseUrl || `http://127.0.0.1:${process.env.PAYMENT_API_PORT || 6100}`;
 
           try {
             const credRes = await fetch(`${apiBase}/api/v1/admin/gmail/credentials`, { headers: { Authorization: `Bearer ${getObserverToken()}` } });
