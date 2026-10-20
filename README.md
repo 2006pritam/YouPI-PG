@@ -36,13 +36,13 @@
 
 <br/>
 
-[![Node.js](https://img.shields.io/badge/Node.js-v20%2B%20LTS-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/Node.js-v24%2B%20LTS-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
 [![Zero Aggregator Fees](https://img.shields.io/badge/Fees-0%25%20Forever-10b981?style=for-the-badge&logo=cashapp&logoColor=white)](#)
 [![Direct Settlement](https://img.shields.io/badge/Settlement-Instant%20P2P%20Bank-3b82f6?style=for-the-badge&logo=buffer&logoColor=white)](#)
 [![WhatsApp Berry Auth](https://img.shields.io/badge/Auth-WhatsApp%20OTP-25d366?style=for-the-badge&logo=whatsapp&logoColor=white)](#)
 [![SQLite WAL](https://img.shields.io/badge/Database-SQLite%20Native%20WAL-003b57?style=for-the-badge&logo=sqlite&logoColor=white)](#)
 [![Native Android Observer](https://img.shields.io/badge/Android-Kotlin%20Observer%20APK-3ddc84?style=for-the-badge&logo=android&logoColor=white)](#)
-[![Regression Tests](https://img.shields.io/badge/Tests-31%2F31%20Passing%20(100%25)-success?style=for-the-badge&logo=vitest&logoColor=white)](#)
+[![Regression Tests](https://img.shields.io/badge/Tests-33%20Curated%20Suites-success?style=for-the-badge&logo=vitest&logoColor=white)](#)
 [![White Label Ready](https://img.shields.io/badge/Branding-100%25%20White--Label-f59e0b?style=for-the-badge&logo=target&logoColor=white)](#)
 
 <br/>
@@ -232,13 +232,19 @@ This section is a practical project warning, not a certification, compliance che
 ---
 
 ##  Quickstart in 60 Seconds
-
+ 
 ### Prerequisites
-- **Node.js `>= 20.0.0` LTS** (`node -v`)
-- Standard Linux or Windows host
-- *No Docker or external database services required!*
+- **Node.js `>= 22.13.0` LTS** (Recommended: Node 24 LTS, `node -v`) for native `node:sqlite` (`DatabaseSync`) engine.
+  `node:sqlite` was added in Node 22.5.0 but only unflagged in **22.13.0**, so 22.5.0–22.12.x cannot run this project without `--experimental-sqlite`.
+- Standard Linux, macOS, or Windows host
+- *External database services (PostgreSQL/Redis) are completely optional!*
 
-### 1. Clone & Install Dependencies
+> **Note:** Containerisation is not included in this repository yet — there is no `Dockerfile` or
+> `docker-compose.yml`. Run the services on a native Node.js host as described below.
+
+### Native Host Quickstart
+
+#### 1. Clone & Install Dependencies
 Standard `npm install` works out-of-the-box across all packages and apps without any protocol issues:
 ```bash
 git clone https://github.com/youpi-pg/YouPI-PG.git youpi-pg
@@ -246,7 +252,7 @@ cd youpi-pg
 npm install
 ```
 
-### 2. Configure Environment
+#### 2. Configure Environment
 ```bash
 cp .env.example .env
 ```

@@ -1,28 +1,7 @@
 import { HttpServer } from '../server.js';
-import { toPaise, toRupeesString, resolveRuntimeUrls, PaymentStatus, safeEqual, hasBearer, getObserverToken } from '@youpi/common';
+import { toPaise, toRupeesString, resolveRuntimeUrls, PaymentStatus, safeEqual } from '@youpi/common';
 import { isTerminalStatus, toPublicOutcome } from '@youpi/core';
-import { isAdminRequest } from '../auth-guard.js';
-
-/**
- * True when the caller may read the merchant-private fields of a payment session.
- *
- * Requires proof of ownership: either the gateway's own admin/observer credential, or the
- * owning merchant's webhook secret presented via `X-Merchant-Key` (which every merchant
- * integration already holds). Without it, only the public view is returned, so a leaked or
- * guessed payment id cannot be used to read internal status, verification internals,
- * merchant metadata or the return URL.
- */
-function isPaymentOwner(req, session, ctx) {
-  if (isAdminRequest(req)) return true;
-  if (hasBearer(req, getObserverToken())) return true;
-
-  const presented = req.headers['x-merchant-key'];
-  if (!presented || typeof presented !== 'string' || !presented.trim()) return false;
-
-  const merchant = ctx.merchantRepo?.findById ? ctx.merchantRepo.findById(session.merchantId) : null;
-  if (!merchant?.webhookSecret) return false;
-  return safeEqual(presented.trim(), merchant.webhookSecret);
-}
+import { isPaymentOwner } from '../auth-guard.js';
 
 /**
  * Registers merchant-facing payment routes.
@@ -352,8 +331,11 @@ export function registerPaymentRoutes(server, ctx) {
       return;
     }
 
+    // Order ids are merchant-chosen and often sequential, so the delivery contact and metadata
+    // are only for the owning merchant (or the gateway); anyone else gets the order status.
+    const owner = isPaymentOwner(req, session, ctx);
     let customer = null;
-    if (session.customerId && ctx.customerRepo) {
+    if (owner && session.customerId && ctx.customerRepo) {
       const c = ctx.customerRepo.findById(session.customerId);
       if (c) {
         const isOwner = isPaymentOwner(req, session, ctx);
@@ -376,9 +358,9 @@ export function registerPaymentRoutes(server, ctx) {
       status: session.status,
       verificationTag: session.verificationTag,
       isCod: session.method === 'COD',
-      customer,
+      customer: owner ? customer : null,
       placedAt: session.completedAt ? (session.completedAt.toISOString ? session.completedAt.toISOString() : session.completedAt) : (session.createdAt?.toISOString ? session.createdAt.toISOString() : session.createdAt),
-      metadata: session.metadata
+      ...(owner ? { metadata: session.metadata } : {})
     });
   });
 
@@ -403,8 +385,11 @@ export function registerPaymentRoutes(server, ctx) {
       return;
     }
 
+    // Order ids are merchant-chosen and often sequential, so the delivery contact and metadata
+    // are only for the owning merchant (or the gateway); anyone else gets the order status.
+    const owner = isPaymentOwner(req, session, ctx);
     let customer = null;
-    if (session.customerId && ctx.customerRepo) {
+    if (owner && session.customerId && ctx.customerRepo) {
       const c = ctx.customerRepo.findById(session.customerId);
       if (c) {
         const isOwner = isPaymentOwner(req, session, ctx);
@@ -427,9 +412,9 @@ export function registerPaymentRoutes(server, ctx) {
       status: session.status,
       verificationTag: session.verificationTag,
       isCod: session.method === 'COD',
-      customer,
+      customer: owner ? customer : null,
       placedAt: session.completedAt ? (session.completedAt.toISOString ? session.completedAt.toISOString() : session.completedAt) : (session.createdAt?.toISOString ? session.createdAt.toISOString() : session.createdAt),
-      metadata: session.metadata
+      ...(owner ? { metadata: session.metadata } : {})
     });
   });
 }

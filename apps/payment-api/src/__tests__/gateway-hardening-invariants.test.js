@@ -11,7 +11,7 @@ import { startServer as startPaymentApi } from '../index.js';
 import { PaymentStatus, PaymentMethod } from '@youpi/common';
 import { authHeadersFor } from '../../../../scripts/test-support.js';
 import { WebhookEngine } from '@youpi/core';
-import { PaymentSessionRepository, CustomerRepository } from '@youpi/db';
+import { PaymentSessionRepository, CustomerRepository, MerchantRepository } from '@youpi/db';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -602,9 +602,26 @@ describe('Gateway Hardening & Invariant Protection Test Suite (#23, #25, #26, #2
     });
 
     assert.equal(rawRes.status, 200);
-    assert.equal(rawRes.body.customer.name, 'Vikram Malhotra');
-    assert.match(rawRes.body.customer.email, /^vi\*\*\*@testmail\.com$/);
-    assert.match(rawRes.body.customer.mobileNumber, /^97\*\*\*\*\*\*\d{2}$/);
+    assert.equal(rawRes.body.customer, null);
+
+    // Authenticated request with X-Merchant-Key
+    const merchant = new MerchantRepository(testDb).findById(merchantId);
+    const authRes = await new Promise((resolve, reject) => {
+      const req = http.request(url, {
+        method: 'GET',
+        headers: { 'X-Merchant-Key': merchant.webhookSecret }
+      }, (res) => {
+        let data = '';
+        res.on('data', c => { data += c; });
+        res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(data) }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+
+    assert.equal(authRes.status, 200);
+    assert.equal(authRes.body.customer.name, 'Vikram Malhotra');
+    assert.equal(authRes.body.customer.email, 'vikram.malhotra@testmail.com');
   });
 });
 

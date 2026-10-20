@@ -16,25 +16,107 @@ const BASE_SECURITY_HEADERS = Object.freeze({
   'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'; object-src 'none'"
 });
 
-/** Security headers applied to embeddable checkout pages allowing universal merchant iframe integration. */
-const CHECKOUT_FRAME_HEADERS = Object.freeze({
-  'X-Content-Type-Options': 'nosniff',
-  'Referrer-Policy': 'strict-origin-when-cross-origin',
-  'Content-Security-Policy': "default-src 'self' data: blob:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors *; base-uri 'none'; form-action 'self'; object-src 'none'"
-});
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
+/**
+ * Origins allowed to embed the checkout page, from CHECKOUT_FRAME_ANCESTORS
+ * (comma or space separated, e.g. "https://shop.example.com"). youpi.js opens the
+ * checkout in an iframe on the merchant's own site, which `frame-ancestors 'self'`
+ * blocks whenever the store and the portal are on different origins. Anything that
+ * is not a plain http(s) origin is ignored, so the CSP cannot be widened by accident.
+ */
+export function frameAncestorOrigins(raw = process.env.CHECKOUT_FRAME_ANCESTORS) {
+  const origins = [];
+  for (const entry of String(raw || '').split(/[\s,]+/)) {
+    if (!entry) continue;
+    try {
+      const url = new URL(entry);
+      if ((url.protocol === 'https:' || url.protocol === 'http:') && entry.replace(/\/$/, '') === url.origin) {
+        origins.push(url.origin);
+      }
+    } catch {}
+  }
+  return origins;
+}
+
+/**
+ * Headers for the embeddable checkout page.
+ *
+ * The checkout page is embedded cross-origin by merchant storefronts, so the default is
+ * permissive (`frame-ancestors *`). Deployments can pin the allowlist with
+ * CHECKOUT_FRAME_ANCESTORS; when set, only those origins (plus the portal itself) may
+ * frame the page. X-Frame-Options is dropped in that case because it cannot express a
+ * list and would otherwise block the allowlisted storefronts.
+ */
+function checkoutFrameHeaders() {
+  const origins = frameAncestorOrigins();
+  return {
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Content-Security-Policy': `default-src 'self' data: blob:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors ${origins.length ? `'self' ${origins.join(' ')}` : '*'}; base-uri 'none'; form-action 'self'; object-src 'none'`
+  };
+}
 
 /**
  * Escapes a value for interpolation into HTML text or attribute context.
  * Order ids, merchant names and branding fields are attacker-influenced, so they must
  * never be injected raw into the checkout template.
  */
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+export function escapeHtml(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch]);
+}
+
+/**
+ * Escapes a value for interpolation into a JavaScript string literal.
+ * HTML escaping is useless inside <script>: the parser never decodes entities
+ * there, so `</script>` and a bare quote would break out of the literal.
+ */
+export function escapeJsString(value) {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026');
+}
+
+/**
+ * Serialises a value as JSON that is safe to embed in a <script> block.
+ * Only `<` matters for tag termination, but U+2028/U+2029 are literal line
+ * terminators in older JS parsers, so they are escaped too.
+ */
+export function serializeForScript(value) {
+  return JSON.stringify(value === undefined ? null : value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
+// Placeholders that land inside a <script> block rather than HTML markup.
+const SCRIPT_PLACEHOLDERS = new Set(['PAYMENT_ID', 'API_BASE_URL', 'AMOUNT']);
+
+/**
+ * Replaces {{PLACEHOLDER}} tokens in the checkout template.
+ *
+ * The replacement is done with a replacer function so that `$&`, `$'` and `` $` ``
+ * inside an attacker-controlled value are inserted literally instead of being
+ * expanded as replacement patterns.
+ */
+export function renderTemplate(template, values) {
+  return template.replace(/\{\{([A-Z0-9_]+)\}\}/g, (match, key) => {
+    if (!Object.prototype.hasOwnProperty.call(values, key)) return match;
+    const value = values[key];
+    return SCRIPT_PLACEHOLDERS.has(key) ? escapeJsString(value) : escapeHtml(value);
+  });
 }
 
 /**
@@ -163,43 +245,35 @@ export class CheckoutServer {
     const downtimeAltBtnDisplay = ((sellingMode === 'ONLINE' && enabledMethods.includes('COD')) || (sellingMode === 'OFFLINE' && enabledMethods.includes('CASH_COUNTER'))) ? 'inline-block' : 'none';
     const downtimeAltBtnLabel = (sellingMode === 'ONLINE') ? 'Pay via Cash on Delivery Instead' : 'Pay by Cash at Till Instead';
 
-    // Everything interpolated below is derived from merchant-supplied or customer-supplied data
-    // (order ids, branding, payee names), so it is HTML-escaped. `{{INITIAL_STATE_JSON}}` is
-    // additionally guarded against `<` so it cannot terminate the inline script block.
-    html = html.replaceAll('{{PAYMENT_ID}}', escapeHtml(paymentId));
-    html = html.replaceAll('{{API_BASE_URL}}', clientApiBase);
-    html = html.replaceAll('{{APP_NAME}}', escapeHtml(appName));
-    html = html.replaceAll('{{PRIMARY_COLOR}}', escapeHtml(primaryColor));
-    html = html.replaceAll('{{MERCHANT_NAME}}', escapeHtml(merchantName));
-    html = html.replaceAll('{{ORDER_ID}}', escapeHtml(orderId));
-    html = html.replaceAll('{{AMOUNT}}', escapeHtml(state?.amount || '0.00'));
-    html = html.replaceAll('{{VPA}}', escapeHtml(vpa));
-    html = html.replaceAll('{{LOGO_URL}}', escapeHtml(logoUrl));
-    html = html.replaceAll('{{SIDEBAR_NOTICE}}', escapeHtml(sidebarNotice));
-    html = html.replaceAll('{{COUNTER_INSTRUCTIONS}}', escapeHtml(counterInstructions));
-    html = html.replaceAll('{{SERVER_HEALTH_CLASS}}', escapeHtml(healthClass));
-    html = html.replaceAll('{{SERVER_HEALTH_LABEL}}', escapeHtml(healthLabel));
-    html = html.replaceAll('{{DOWNTIME_ALERT_STYLE}}', escapeHtml(alertStyle));
-    html = html.replaceAll('{{DOWNTIME_ALERT_CLASS}}', escapeHtml(alertClass));
-    html = html.replaceAll('{{DOWNTIME_HEADING}}', escapeHtml(alertHeading));
-    html = html.replaceAll('{{DOWNTIME_MSG}}', escapeHtml(alertMsg));
-    html = html.replaceAll('{{METHOD_SELECTOR_DISPLAY}}', escapeHtml(showMethodBar));
-    html = html.replaceAll('{{TAB_COD_STYLE}}', escapeHtml(tabCodStyle));
-    html = html.replaceAll('{{TAB_CASH_STYLE}}', escapeHtml(tabCashStyle));
-    html = html.replaceAll('{{TAB_CARD_STYLE}}', escapeHtml(tabCardStyle));
-    html = html.replaceAll('{{PC_COD_STYLE}}', escapeHtml(pcCodStyle));
-    html = html.replaceAll('{{PC_CASH_STYLE}}', escapeHtml(pcCashStyle));
-    html = html.replaceAll('{{PC_CARD_STYLE}}', escapeHtml(pcCardStyle));
-    html = html.replaceAll('{{DOWNTIME_ALT_BTN_DISPLAY}}', escapeHtml(downtimeAltBtnDisplay));
-    html = html.replaceAll('{{DOWNTIME_ALT_BTN_LABEL}}', escapeHtml(downtimeAltBtnLabel));
-    html = html.replaceAll('{{INITIAL_STATE_JSON}}', JSON.stringify(state || {})
-      .replaceAll('<', '\\u003c')
-      .replaceAll('>', '\\u003e')
-      .replaceAll('&', '\\u0026')
-      .replaceAll('\u2028', '\\u2028')
-      .replaceAll('\u2029', '\\u2029'));
-
-    return html;
+    return renderTemplate(html, {
+      PAYMENT_ID: paymentId,
+      API_BASE_URL: clientApiBase,
+      APP_NAME: appName,
+      PRIMARY_COLOR: primaryColor,
+      MERCHANT_NAME: merchantName,
+      ORDER_ID: orderId,
+      AMOUNT: state?.amount || '0.00',
+      VPA: vpa,
+      LOGO_URL: logoUrl,
+      SIDEBAR_NOTICE: sidebarNotice,
+      COUNTER_INSTRUCTIONS: counterInstructions,
+      SERVER_HEALTH_CLASS: healthClass,
+      SERVER_HEALTH_LABEL: healthLabel,
+      DOWNTIME_ALERT_STYLE: alertStyle,
+      DOWNTIME_ALERT_CLASS: alertClass,
+      DOWNTIME_HEADING: alertHeading,
+      DOWNTIME_MSG: alertMsg,
+      METHOD_SELECTOR_DISPLAY: showMethodBar,
+      TAB_COD_STYLE: tabCodStyle,
+      TAB_CASH_STYLE: tabCashStyle,
+      TAB_CARD_STYLE: tabCardStyle,
+      PC_COD_STYLE: pcCodStyle,
+      PC_CASH_STYLE: pcCashStyle,
+      PC_CARD_STYLE: pcCardStyle,
+      DOWNTIME_ALT_BTN_DISPLAY: downtimeAltBtnDisplay,
+      DOWNTIME_ALT_BTN_LABEL: downtimeAltBtnLabel,
+      INITIAL_STATE_JSON: serializeForScript(state || {})
+    });
   }
 
   createServer() {
@@ -211,6 +285,13 @@ export class CheckoutServer {
       if (pathname === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ status: 'UP', service: 'checkout-portal' }));
+        return;
+      }
+
+      // Keep-alive ping for cron / uptime monitors
+      if (pathname === '/ping') {
+        res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
+        res.end('ok');
         return;
       }
 
@@ -321,7 +402,7 @@ export class CheckoutServer {
           'Pragma': 'no-cache',
           'Expires': '0',
           'Access-Control-Allow-Origin': '*',
-          ...CHECKOUT_FRAME_HEADERS
+          ...BASE_SECURITY_HEADERS
         });
         res.end(svg);
         return;
@@ -334,14 +415,14 @@ export class CheckoutServer {
         const state = await this.fetchPaymentState(paymentId);
 
         const rendered = this.renderHtml(paymentId, state);
-res.writeHead(200, {
-            'Content-Type': 'text/html; charset=utf-8',
-            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
-            'Pragma': 'no-cache',
-            'Expires': '0',
-            'Access-Control-Allow-Origin': '*',
-            ...CHECKOUT_FRAME_HEADERS
-          });
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+          'Access-Control-Allow-Origin': '*',
+          ...checkoutFrameHeaders()
+        });
         res.end(rendered);
         return;
       }

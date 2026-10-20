@@ -355,9 +355,22 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
     assert.equal(bindRes.body.success, true);
     assert.equal(bindRes.body.customer.phoneNumber, '9111222333');
 
-    // 4. Inspect state: customer is attached!
+    // 4. Inspect state: the customer is attached, but their contact details are NOT
+    //    disclosed to an anonymous caller that only holds the payment id.
     const stateRes = await request(`/api/v1/checkout/${paymentId}/state`);
-    assert.equal(stateRes.body.customer.phoneNumber, '9111222333');
+    assert.equal(stateRes.body.customer, null);
+
+    // The customer themselves, presenting their own session token, do see their profile.
+    const selfState = await request(`/api/v1/checkout/${paymentId}/state`, {
+      headers: { 'x-customer-token': regRes.body.token }
+    });
+    assert.equal(selfState.body.customer.phoneNumber, '9111222333');
+
+    // The owning merchant, presenting its secret, sees the customer too.
+    const ownerState = await request(`/api/v1/checkout/${paymentId}/state`, {
+      headers: { 'X-Merchant-Key': merchantSecret }
+    });
+    assert.equal(ownerState.body.customer.phoneNumber, '9111222333');
 
     // 5. Test action trigger hook
     const hookRes = await request(`/api/v1/checkout/${paymentId}/trigger-hook`, {
