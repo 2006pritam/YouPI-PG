@@ -150,12 +150,13 @@ export class ProcessManager extends EventEmitter {
         }
       } catch {}
     }
-    const hasEnvArg = process.execArgv.some(arg => arg.startsWith('--env-file'));
-    const execArgv = (!hasEnvArg && fs.existsSync(envFile)) ? [`--env-file=${envFile}`] : [];
+    const supervisorOverrides = {};
+    if (process.env.NODE_ENV) supervisorOverrides.NODE_ENV = process.env.NODE_ENV;
+    if (process.env.YOUPI_MODE) supervisorOverrides.YOUPI_MODE = process.env.YOUPI_MODE;
 
     const child = fork(svc.script, [], {
       execArgv: [...process.execArgv, ...execArgv],
-      env: { ...process.env, ...freshEnv, PORT: svc.port.toString() },
+      env: { ...freshEnv, ...process.env, ...supervisorOverrides, PORT: svc.port.toString() },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc']
     });
 
