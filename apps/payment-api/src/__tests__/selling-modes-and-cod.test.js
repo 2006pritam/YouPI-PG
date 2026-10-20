@@ -366,7 +366,7 @@ describe('Architectural Update: Selling Modes (Online vs Offline), COD Flow, & C
 
     await request(`/api/v1/checkout/${paymentId}/bind-customer`, {
       method: 'POST',
-      body: { customerId: reg.body.customerId }
+      body: { customerId: reg.body.customerId, token: customerToken }
     });
 
     // 1. Anonymous callers learn nothing about the customer.

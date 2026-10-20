@@ -1190,7 +1190,7 @@
             }, () => {
               const el = document.getElementById('codTimerText');
               if (el) el.textContent = 'Expired';
-              fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/expire`, { method: 'POST' }).catch(() => { });
+              fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/expire`, { method: 'POST', headers: getApiHeaders() }).catch(() => { });
               loadState();
             });
           } else if (method === 'UPI') {
@@ -1202,7 +1202,7 @@
               }, () => {
                 const el = document.getElementById('activeTimerText');
                 if (el) el.textContent = 'Expired';
-                fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/expire`, { method: 'POST' }).catch(() => { });
+                fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/expire`, { method: 'POST', headers: getApiHeaders() }).catch(() => { });
                 loadState();
               });
             } else if (resData.status === 'QUEUED') {
@@ -1236,7 +1236,7 @@
       try {
         const res = await fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/confirm-cod`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
+          headers: getApiHeaders({ 'Content-Type': 'application/json' })
         });
         const data = await res.json();
         if (res.ok) {
@@ -2078,7 +2078,7 @@
           }, () => {
             const el = document.getElementById('codTimerText');
             if (el) el.textContent = 'Expired';
-            fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/expire`, { method: 'POST' }).catch(() => { });
+            fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/expire`, { method: 'POST', headers: getApiHeaders() }).catch(() => { });
             loadState();
           }, data.expiresAt);
         } else if (currentSelectedMethod === 'CASH_COUNTER') {
@@ -2129,7 +2129,7 @@
             if (tText) tText.textContent = 'Expired';
             if (btnContinue) btnContinue.style.display = 'none';
             closeProcessingModal();
-            fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/expire`, { method: 'POST' }).catch(() => { });
+            fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/expire`, { method: 'POST', headers: getApiHeaders() }).catch(() => { });
             loadState();
           }, targetExpiry);
         }
@@ -2392,7 +2392,8 @@
 
       try {
         const res = await fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/payment-done`, {
-          method: 'POST'
+          method: 'POST',
+          headers: getApiHeaders()
         });
         if (res.ok) {
           loadState();
@@ -2574,13 +2575,7 @@
 
       try {
         await DeviceIdentity.getOrRegister();
-        const headers = { 'Content-Type': 'application/json' };
-        if (DeviceIdentity.currentDeviceId) {
-          headers['X-Device-Id'] = DeviceIdentity.currentDeviceId;
-        }
-        if (DeviceIdentity.currentDeviceToken) {
-          headers['X-Device-Token'] = DeviceIdentity.currentDeviceToken;
-        }
+        const headers = getApiHeaders({ 'Content-Type': 'application/json' });
 
         const conflictingSessionId = lastDuplicateSessionPayload?.conflicting_session_id || activeConflictSessionId || null;
 
@@ -2589,6 +2584,7 @@
           headers,
           body: JSON.stringify({
             deviceId: DeviceIdentity.currentDeviceId,
+            deviceToken: DeviceIdentity.currentDeviceToken,
             conflictingSessionId
           })
         });
@@ -2621,8 +2617,11 @@
       }
 
       try {
-        const devQuery = DeviceIdentity.currentDeviceId ? `?deviceId=${encodeURIComponent(DeviceIdentity.currentDeviceId)}` : '';
-        const streamUrl = `${API_BASE}/api/v1/checkout/${PAYMENT_ID}/stream${devQuery}`;
+        const params = new URLSearchParams();
+        if (DeviceIdentity.currentDeviceId) params.set('deviceId', DeviceIdentity.currentDeviceId);
+        if (DeviceIdentity.currentDeviceToken) params.set('deviceToken', DeviceIdentity.currentDeviceToken);
+        const qs = params.toString();
+        const streamUrl = `${API_BASE}/api/v1/checkout/${PAYMENT_ID}/stream${qs ? '?' + qs : ''}`;
         sse = new EventSource(streamUrl);
 
         const handleRealtimePayload = (event) => {
