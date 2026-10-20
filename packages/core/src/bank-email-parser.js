@@ -30,22 +30,27 @@ export class BankEmailParser {
     const combinedText = `${email.subject || ''} ${email.body || ''}`.trim();
     if (!combinedText) return null;
 
-    // Check if email represents an incoming credit/payment
-    const creditKeywords = /\b(credited|credit|received|deposit|deposited|payment received|upi\/cr)\b/i;
+    // Check if email represents an incoming credit/payment. A bare "payment" or "transferred"
+    // without credit context is rejected, but "transferred to your account" and "payment of
+    // Rs 500" are genuine credits and must still be recognised.
+    const creditKeywords = new RegExp(
+      '\\b(?:credited|credit|received|deposit(?:ed)?|payment\\s+received|upi\\/cr' +
+      '|transferred\\s+to\\s+(?:your\\s+)?(?:a\\/c|account|wallet)' +
+      '|payment\\s+of\\s+(?:(?:rs\\b\\.?|inr\\b)\\s*)?[\\d,.]+\\s+(?:has\\s+been\\s+)?made\\s+to\\s+(?:your\\s+)?(?:a\\/c|account|wallet)' +
+      '|added\\s+to\\s+(?:your\\s+)?(?:account|wallet))\\b',
+      'i'
+    );
     if (!creditKeywords.test(combinedText)) {
       return null; // Ignore non-credit alerts
     }
 
-    // Reject debit notifications:
+    // Reject debit notifications. A debit that appears before any credit means the message is
+    // about money leaving the account; a debit mentioned after a credit (e.g. "Rs 500 credited.
+    // Rs 10 debited for charges") must not cancel the credit.
     const debitIdx = combinedText.search(/\b(?:debited|withdrawn|deducted|spent|paid rs|sent rs)\b/i);
     const creditIdx = combinedText.search(/\b(?:credited|credit|received|deposit|deposited)\b/i);
-    if (debitIdx !== -1) {
-      if (creditIdx === -1 || debitIdx < creditIdx) {
-        return null;
-      }
-      if (/\b(?:debited\s*(?:from|by|for)|is\s+debited|has\s+been\s+debited)\b/i.test(combinedText)) {
-        return null;
-      }
+    if (debitIdx !== -1 && (creditIdx === -1 || debitIdx < creditIdx)) {
+      return null;
     }
 
     // 1. Extract Monetary Amount using Intelligent Multi-Pattern Extractor
