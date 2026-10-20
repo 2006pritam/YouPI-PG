@@ -8,6 +8,13 @@ async function resetProductionDatabase() {
   console.log('🚀 TARGETED PRODUCTION DATABASE RESET');
   console.log('============================================================');
 
+  const isConfirmed = process.argv.includes('--confirm-reset-production-db') || process.env.ALLOW_PRODUCTION_RESET === 'true';
+  if (!isConfirmed) {
+    console.error('\n❌ [SAFETY ABORT] Production database reset requires explicit confirmation.');
+    console.error('To proceed, re-run with `--confirm-reset-production-db` or set `ALLOW_PRODUCTION_RESET=true`.\n');
+    process.exit(1);
+  }
+
   const prodDbPath = path.resolve(process.cwd(), 'data/youpi_pg.sqlite');
   console.log('Target Database Path:', prodDbPath);
 
@@ -20,18 +27,23 @@ async function resetProductionDatabase() {
     initDb.close();
   }
 
-  // Backup before reset
+  const db = new Database({ dbPath: prodDbPath });
+
+  // Backup before reset using WAL-safe atomic VACUUM INTO
   const backupDir = path.resolve(process.cwd(), 'data/backups');
   if (!fs.existsSync(backupDir)) {
     fs.mkdirSync(backupDir, { recursive: true });
   }
   const backupPath = path.join(backupDir, `prod_pre_reset_${Date.now()}.sqlite`);
-  if (fs.existsSync(prodDbPath)) {
-    fs.copyFileSync(prodDbPath, backupPath);
-    console.log('[✓] Confirmed pre-reset backup exists:', backupPath);
+  try {
+    db.execute('VACUUM INTO ?', [backupPath]);
+    console.log('[✓] Confirmed WAL-consistent atomic backup created via VACUUM INTO:', backupPath);
+  } catch (backupErr) {
+    console.warn('[!] VACUUM INTO failed, falling back to copyFileSync:', backupErr.message);
+    if (fs.existsSync(prodDbPath)) {
+      fs.copyFileSync(prodDbPath, backupPath);
+    }
   }
-
-  const db = new Database({ dbPath: prodDbPath });
 
   // 1. Audit BEFORE state
   console.log('\n--- BEFORE RESET COUNTS ---');

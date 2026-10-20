@@ -150,12 +150,19 @@ export class ProcessManager extends EventEmitter {
         }
       } catch {}
     }
-    const hasEnvArg = process.execArgv.some(arg => arg.startsWith('--env-file'));
+    const supervisorOverrides = {};
+    if (process.env.NODE_ENV) supervisorOverrides.NODE_ENV = process.env.NODE_ENV;
+    if (process.env.YOUPI_MODE) supervisorOverrides.YOUPI_MODE = process.env.YOUPI_MODE;
+
+    // Re-apply the shared .env file as a child-process argument unless the caller already
+    // supplied one. Without this declaration the fork() below referenced an undefined
+    // variable and crashed every service start (ReferenceError: execArgv is not defined).
+    const hasEnvArg = process.execArgv.some(arg => String(arg).startsWith('--env-file'));
     const execArgv = (!hasEnvArg && fs.existsSync(envFile)) ? [`--env-file=${envFile}`] : [];
 
     const child = fork(svc.script, [], {
       execArgv: [...process.execArgv, ...execArgv],
-      env: { ...process.env, ...freshEnv, PORT: svc.port.toString() },
+      env: { ...freshEnv, ...process.env, ...supervisorOverrides, PORT: svc.port.toString() },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc']
     });
 

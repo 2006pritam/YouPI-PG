@@ -2,7 +2,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { startCheckoutServer } from '../index.js';
-import { generateQrMatrix, generateQrSvg } from '../qr.js';
+import { generateQrMatrix, generateQrSvg } from '@youpi/core';
 
 describe('Checkout Portal Integration Tests', () => {
   let serverInstance;
@@ -142,6 +142,18 @@ describe('Checkout Portal Integration Tests', () => {
 
       // INVARIANT: Raw Payee VPA / UPI ID row is REMOVED from Order Summary
       assert.equal(res.text.includes('id="drawerVpa"'), false);
+    });
+
+    test('GET /css/checkout.css and /js/checkout.js return static modular assets with CORS', async () => {
+      const resCss = await get('/css/checkout.css');
+      assert.equal(resCss.status, 200);
+      assert.ok(resCss.headers['content-type'].includes('text/css'));
+      assert.ok(resCss.text.includes('.ypg-wrapper'));
+
+      const resJs = await get('/js/checkout.js');
+      assert.equal(resJs.status, 200);
+      assert.ok(resJs.headers['content-type'].includes('application/javascript'));
+      assert.ok(resJs.text.includes('STORAGE_KEY_IDENTITY'));
     });
   });
 });

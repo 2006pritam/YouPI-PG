@@ -44,17 +44,50 @@ export function registerCustomerRoutes(server, ctx) {
   const otpRequestLog = new Map();
 
   /**
+   * Resolves the configured cooldown between consecutive OTP dispatches.
+   * Prioritizes explicit runtime options (ctx.otpCooldownMs), environment overrides
+   * (OTP_RESEND_COOLDOWN_MS), and defaults to 30 seconds.
+   */
+  function getOtpCooldownMs() {
+    if (ctx && typeof ctx.otpCooldownMs === 'number' && ctx.otpCooldownMs >= 0) {
+      return ctx.otpCooldownMs;
+    }
+    if (process.env.OTP_RESEND_COOLDOWN_MS !== undefined) {
+      const val = Number(process.env.OTP_RESEND_COOLDOWN_MS);
+      if (Number.isFinite(val) && val >= 0) {
+        return val;
+      }
+    }
+    return OTP_RESEND_COOLDOWN_MS;
+  }
+
+  /**
    * Records an OTP request and reports whether the caller is within the resend cooldown.
    * Entries older than the cooldown are pruned on each call.
    */
   function isOtpThrottled(mobile) {
+    const cooldownMs = getOtpCooldownMs();
+    if (cooldownMs === 0) {
+      return false;
+    }
     const now = Date.now();
     for (const [key, at] of otpRequestLog) {
-      if (now - at > OTP_RESEND_COOLDOWN_MS) otpRequestLog.delete(key);
+      if (now - at > cooldownMs) otpRequestLog.delete(key);
     }
     if (otpRequestLog.has(mobile)) return true;
     otpRequestLog.set(mobile, now);
     return false;
+  }
+
+  // Expose reset helper for tests to reset rate-limiting state deterministically
+  if (ctx) {
+    ctx.resetOtpCooldown = (mobile) => {
+      if (mobile) {
+        otpRequestLog.delete(normalizeMobile(mobile) || mobile);
+      } else {
+        otpRequestLog.clear();
+      }
+    };
   }
 
   // Helper to get Berry Service

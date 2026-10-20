@@ -127,6 +127,11 @@ export class ReceivingAccountRepository {
 
       const now = new Date().toISOString();
       const upiId = data.upiId !== undefined ? data.upiId.trim() : existing.upiId;
+
+      if (existing.isSlotBusy && data.upiId !== undefined && upiId !== existing.upiId) {
+        throw new Error('Cannot change UPI ID while receiving account slot is currently busy with an active payment session.');
+      }
+
       const payeeName = data.payeeName !== undefined ? data.payeeName.trim() : existing.payeeName;
       const isMerchantEnabled = data.isMerchantEnabled !== undefined ? Boolean(data.isMerchantEnabled) : existing.isMerchantEnabled;
 
