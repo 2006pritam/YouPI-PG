@@ -1,5 +1,5 @@
 import { HttpServer } from '../server.js';
-import { toRupeesString, buildUpiUri, PaymentStatus, PaymentMethod, UPI_PROVIDERS, isInternalServiceRequest } from '@youpi/common';
+import { toRupeesString, buildUpiUri, PaymentStatus, PaymentMethod, UPI_PROVIDERS, isInternalServiceRequest, isValidTransition } from '@youpi/common';
 import { validateSessionDeviceAccess } from '@youpi/core';
 
 /**
@@ -1238,6 +1238,13 @@ export function registerCheckoutRoutes(server, ctx) {
     // PROCESSING = a UPI payment was already detected and is being verified; switching it to COD would drop that payment.
     if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED, PaymentStatus.PROCESSING].includes(session.status)) {
       HttpServer.json(res, 400, { error: `Cannot place COD order for session in status '${session.status}'` });
+      return;
+    }
+
+    // COD terminates the session as SUCCESS; make sure the state machine permits that edge
+    // (INITIATED/QUEUED/ACTIVE are all legal; anything else is caught above).
+    if (!isValidTransition(session.status, PaymentStatus.SUCCESS)) {
+      HttpServer.json(res, 409, { error: `Cannot place COD order for session in status '${session.status}'.` });
       return;
     }
 

@@ -34,14 +34,20 @@ describe('@youpi/core Unit & Integration Tests', () => {
       assert.equal(isValidTransition(PaymentStatus.ACTIVE, PaymentStatus.EXPIRED), true);
       assert.equal(isValidTransition(PaymentStatus.ACTIVE, PaymentStatus.CANCELLED), true);
 
+      // Cash-on-Delivery: placing the order terminates the session as SUCCESS even before
+      // a UPI slot is acquired (INITIATED/QUEUED) or while it is held (ACTIVE).
+      assert.equal(isValidTransition(PaymentStatus.INITIATED, PaymentStatus.SUCCESS), true);
+      assert.equal(isValidTransition(PaymentStatus.QUEUED, PaymentStatus.SUCCESS), true);
+
       // Illegal transitions
-      assert.equal(isValidTransition(PaymentStatus.INITIATED, PaymentStatus.SUCCESS), false);
       assert.equal(isValidTransition(PaymentStatus.QUEUED, PaymentStatus.PROCESSING), false);
       assert.equal(isValidTransition(PaymentStatus.EXPIRED, PaymentStatus.SUCCESS), false);
       assert.equal(isValidTransition(PaymentStatus.SUCCESS, PaymentStatus.FAILED), false);
+      assert.equal(isValidTransition(PaymentStatus.SUCCESS, PaymentStatus.ACTIVE), false);
+      assert.equal(isValidTransition(PaymentStatus.PROCESSING, PaymentStatus.ACTIVE), false);
 
       assert.throws(
-        () => assertValidTransition(PaymentStatus.INITIATED, PaymentStatus.SUCCESS),
+        () => assertValidTransition(PaymentStatus.SUCCESS, PaymentStatus.ACTIVE),
         /Illegal payment state transition/
       );
     });
