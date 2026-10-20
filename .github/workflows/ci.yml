@@ -22,7 +22,6 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  issues: write
   actions: read
 
 # Cancel in-progress runs for PRs to save runner minutes, but queue safely on main branch
@@ -140,13 +139,19 @@ jobs:
     needs: [gitleaks, security-audit, build, test]
     if: always() && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
+    # Only this job posts the summary comment; the other jobs stay least-privilege.
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      actions: read
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Update Sticky PR Comment with CI Results
-        uses: arungupta1526/reviewground@v1
+        uses: arungupta1526/reviewground@a95e4dab1fd2b8bb9d02b6f3fc9a7f5c89d1cc76 # v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           mode: 'summary'
