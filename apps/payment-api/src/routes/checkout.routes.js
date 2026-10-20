@@ -411,6 +411,14 @@ export function registerCheckoutRoutes(server, ctx) {
         status: session.status,
         timeRemainingSeconds: 0,
         isTerminal: true,
+        // The return URL belongs to the terminal payload too. The checkout
+        // page reads it from the *state* it was last given, and a terminal
+        // session is answered by this branch — so a session that ends without
+        // it loses the merchant's return address, and the customer is left
+        // staring at a success screen with no way back to the store. The
+        // field is already public in the non-terminal payload below, so
+        // including it here exposes nothing new.
+        returnUrl: session.returnUrl,
         branding
       });
       return;
