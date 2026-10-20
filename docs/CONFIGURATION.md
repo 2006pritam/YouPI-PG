@@ -28,6 +28,7 @@
 | `YOUPI_ALLOW_DEV_TOOLS` | unset | Developer test-mode / simulator endpoints (`/admin/dev/*`, `simulate-observation`) are refused when `NODE_ENV=production` unless this is `true` |
 | `GMAIL_REDIRECT_URI` | derived | Gmail OAuth redirect URI. Defaults to `<gmail host from your configured domain>/oauth/callback` |
 | `ANDROID_HEARTBEAT_TIMEOUT_MS` | `180000` | Inactivity window before Android device is marked DISCONNECTED |
+| `CHECKOUT_FRAME_ANCESTORS` | `*` | `frame-ancestors` CSP for the checkout page. Set it to your storefront origins (for example `https://shop.example.com`) to stop other sites framing the checkout page. |
 
 ---
 
