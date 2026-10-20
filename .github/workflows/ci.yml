@@ -1,0 +1,155 @@
+name: CI & Security Scan
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+      - '.vscode/**'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+      - 'LICENSE'
+      - '.vscode/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+# Cancel in-progress runs for PRs to save runner minutes, but queue safely on main branch
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  # =============================================================
+  # Stage 1 (Head of Snake): Secret Leak Detection
+  # Halts immediately if any API keys, tokens, or credentials leak
+  # =============================================================
+  gitleaks:
+    name: 🐍 1. Gitleaks Secret Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks Security Scan
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # =============================================================
+  # Stage 2: Dependency Security Audit
+  # Runs ONLY after Stage 1 (Gitleaks) passes successfully
+  # =============================================================
+  security-audit:
+    name: 🐍 2. Dependency Audit
+    needs: [gitleaks]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Node.js 24 LTS
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Security Audit (npm audit)
+        run: npm audit --audit-level=high
+
+  # =============================================================
+  # Stage 3: TypeScript Compilation & Production Build Check
+  # Runs ONLY after Stage 2 (Dependency Audit) passes successfully
+  # =============================================================
+  build:
+    name: 🐍 3. TypeScript Typecheck & Build
+    needs: [security-audit]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Node.js 24 LTS
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run TypeScript Typecheck
+        run: npm run typecheck
+
+      - name: Run Build
+        run: npm run build
+
+  # =============================================================
+  # Stage 4 (Tail of Snake): Unit & Regression Test Verification
+  # Runs ONLY after Stage 3 (Build) passes successfully
+  # =============================================================
+  test:
+    name: 🐍 4. Regression Tests
+    needs: [build]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Node.js 24 LTS
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Full Regression Test Suite
+        run: npm test
+        env:
+          NODE_ENV: test
+          YOUPI_MODE: localhost
+
+  # =============================================================
+  # Stage 5: Update ReviewGround Sticky Comment with CI Status
+  # Runs after all stages, finds the existing review comment and edits (PATCH) it
+  # =============================================================
+  ci-summary:
+    name: 📊 5. Update ReviewGround CI Summary
+    needs: [gitleaks, security-audit, build, test]
+    if: always() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Update Sticky PR Comment with CI Results
+        uses: arungupta1526/reviewground@a95e4dab1fd2b8bb9d02b6f3fc9a7f5c89d1cc76 # v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          mode: 'summary'
+          gitleaks-result: ${{ needs.gitleaks.result }}
+          audit-result: ${{ needs.security-audit.result }}
+          build-result: ${{ needs.build.result }}
+          test-result: ${{ needs.test.result }}

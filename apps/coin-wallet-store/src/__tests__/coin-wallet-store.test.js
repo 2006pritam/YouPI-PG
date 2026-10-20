@@ -372,4 +372,26 @@ describe('Coin Top-Up Wallet Demo Store Integration Tests', () => {
     // It should either return 200/502 (if portal not up on that test port), but NEVER 404 "Route Not Found"
     assert.notEqual(res.body, 'Route Not Found');
   });
+
+  test('GET /css/store.css serves modular stylesheet with proper Content-Type', async () => {
+    const res = await request('/css/store.css');
+    assert.equal(res.status, 200);
+    assert.ok(res.headers['content-type'].includes('text/css'));
+    assert.ok(res.body.includes('--primary: #2563eb'));
+    assert.ok(res.body.includes('table-responsive-wrapper'));
+  });
+
+  test('GET /js/store.js serves modular client script with proper Content-Type', async () => {
+    const res = await request('/js/store.js');
+    assert.equal(res.status, 200);
+    assert.ok(res.headers['content-type'].includes('application/javascript'));
+    assert.ok(res.body.includes('startGatewayPurchase'));
+    assert.ok(res.body.includes('youpi:payment:success'));
+  });
+
+  test('Security: directory traversal attempts on public static assets are blocked', async () => {
+    const res = await request('/css/../../package.json');
+    // Traversal should not return package.json content with 200
+    assert.ok(res.status === 404 || res.status === 502 || !res.body.includes('"name": "youpi-pg"'));
+  });
 });

@@ -3,6 +3,26 @@ node_modules/
 .pnp
 .pnp.js
 
+# Build Outputs
+dist/
+**/dist/
+*.tsbuildinfo
+**/*.tsbuildinfo
+.tmp_apk_build/
+
+# Android & Gradle Build Artifacts
+.gradle/
+**/.gradle/
+build/
+**/build/
+local.properties
+**/local.properties
+.cxx/
+**/captures/
+*.apk
+*.aar
+!apps/android-observer-app/youpi-sms-gateway.apk
+
 # Environment and Secrets
 .env
 .env.local
@@ -38,14 +58,14 @@ Thumbs.db
 .system_generated/
 *.tmp
 *.temp
+\# File Tree*
+\#*
+arun-test-ci.md
+TRACKER.md
 
 # Root Testing Screenshots
-*.png
-*.jpg
-*.jpeg
-*.mp4
-*.webm
-!apps/**
-!packages/**
-!docs/**
-!assets/**
+/*.png
+/*.jpg
+/*.jpeg
+/*.mp4
+/*.webm

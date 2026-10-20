@@ -6,7 +6,7 @@ import { PaymentSessionRepository } from '../packages/db/src/repositories/paymen
 import { MerchantRepository } from '../packages/db/src/repositories/merchant.repository.js';
 import { ObservationRepository } from '../packages/db/src/repositories/observation.repository.js';
 import { AttributionEngine } from '../packages/core/src/attribution-engine.js';
-import { generateQrSvg } from '../apps/checkout-portal/src/qr.js';
+import { generateQrSvg } from '@youpi/core';
 import {
   buildUpiUri,
   buildUpiIntentUri,

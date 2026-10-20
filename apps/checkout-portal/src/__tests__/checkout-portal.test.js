@@ -2,7 +2,8 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { startCheckoutServer } from '../index.js';
-import { generateQrMatrix, generateQrSvg } from '../qr.js';
+import { generateQrMatrix, generateQrSvg } from '@youpi/core';
+import { frameAncestorOrigins } from '../server.js';
 
 describe('Checkout Portal Integration Tests', () => {
   let serverInstance;
@@ -85,6 +86,33 @@ describe('Checkout Portal Integration Tests', () => {
       assert.equal(res.text.includes('available-offers-card'), false);
     });
 
+    test('GET /checkout/:id framing is controlled by CHECKOUT_FRAME_ANCESTORS', async () => {
+      // No allowlist configured: the checkout page stays framable by any origin, because
+      // merchant storefronts embed it cross-origin. Deployments can pin the allowlist.
+      const before = await get('/checkout/pay_test_uuid_12345');
+      assert.equal(before.headers['x-frame-options'], undefined);
+      assert.ok(before.headers['content-security-policy'].includes('frame-ancestors *;'));
+
+      process.env.CHECKOUT_FRAME_ANCESTORS = 'https://shop.example.com, javascript:alert(1) https://x.test/path *';
+      try {
+        const res = await get('/checkout/pay_test_uuid_12345');
+        assert.equal(res.headers['x-frame-options'], undefined);
+        assert.ok(res.headers['content-security-policy'].includes("frame-ancestors 'self' https://shop.example.com;"));
+        // The QR image stays unframeable.
+        const qr = await get('/checkout/pay_test_uuid_12345/qr.svg');
+        assert.equal(qr.headers['x-frame-options'], 'SAMEORIGIN');
+      } finally {
+        delete process.env.CHECKOUT_FRAME_ANCESTORS;
+      }
+      assert.deepEqual(frameAncestorOrigins('https://a.test http://localhost:5000/'), ['https://a.test', 'http://localhost:5000']);
+      // Entries that are not a bare http(s) origin are rejected outright, so the value can
+      // never widen the CSP or inject another directive.
+      assert.deepEqual(frameAncestorOrigins('javascript:alert(1)'), []);
+      assert.deepEqual(frameAncestorOrigins('https://x.test/path'), []);
+      assert.deepEqual(frameAncestorOrigins('*'), []);
+      assert.deepEqual(frameAncestorOrigins('https://user:pass@x.test'), []);
+    });
+
     test('GET /checkout/:id/qr.svg returns dynamic SVG image', async () => {
       const res = await get('/checkout/pay_test_uuid_12345/qr.svg');
       assert.equal(res.status, 200);
@@ -142,6 +170,18 @@ describe('Checkout Portal Integration Tests', () => {
 
       // INVARIANT: Raw Payee VPA / UPI ID row is REMOVED from Order Summary
       assert.equal(res.text.includes('id="drawerVpa"'), false);
+    });
+
+    test('GET /css/checkout.css and /js/checkout.js return static modular assets with CORS', async () => {
+      const resCss = await get('/css/checkout.css');
+      assert.equal(resCss.status, 200);
+      assert.ok(resCss.headers['content-type'].includes('text/css'));
+      assert.ok(resCss.text.includes('.ypg-wrapper'));
+
+      const resJs = await get('/js/checkout.js');
+      assert.equal(resJs.status, 200);
+      assert.ok(resJs.headers['content-type'].includes('application/javascript'));
+      assert.ok(resJs.text.includes('STORAGE_KEY_IDENTITY'));
     });
   });
 });

@@ -9,17 +9,77 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 
 console.log('🚀 Starting certified Android APK compilation for YouPI SMS Gateway...');
 
-// Resolve Toolchain Paths
-const JDK_DIR = 'C:\\Program Files\\Microsoft\\jdk-17.0.20.101-hotspot\\bin';
-const JAVAC = path.join(JDK_DIR, 'javac.exe');
-const KEYTOOL = path.join(JDK_DIR, 'keytool.exe');
+// Resolve Toolchain Paths dynamically across macOS, Linux, and Windows
+const isWin = process.platform === 'win32';
 
-const CLT_BUILD_TOOLS = 'C:\\Users\\gaura\\scoop\\apps\\android-clt\\current\\build-tools\\34.0.0';
-const AAPT = path.join(CLT_BUILD_TOOLS, 'aapt.exe');
-const D8 = path.join(CLT_BUILD_TOOLS, 'd8.bat');
-const ZIPALIGN = path.join(CLT_BUILD_TOOLS, 'zipalign.exe');
-const APKSIGNER = path.join(CLT_BUILD_TOOLS, 'apksigner.bat');
-const ANDROID_JAR = 'C:\\Users\\gaura\\scoop\\apps\\android-clt\\current\\platforms\\android-34\\android.jar';
+function findBinary(name, winExt = '.exe', searchDirs = []) {
+  const binaryName = isWin ? `${name}${winExt}` : name;
+  for (const dir of searchDirs) {
+    if (!dir) continue;
+    const full = path.join(dir, binaryName);
+    if (fs.existsSync(full)) return full;
+  }
+  // Fall back to PATH
+  return binaryName;
+}
+
+// Locate Android SDK
+const androidSdkCandidates = [
+  process.env.ANDROID_HOME,
+  process.env.ANDROID_SDK_ROOT,
+  path.join(process.env.HOME || '', 'Library/Android/sdk'),
+  path.join(process.env.HOME || '', 'Android/Sdk'),
+  path.join(process.env.LOCALAPPDATA || '', 'Android/Sdk'),
+  'C:\\Users\\gaura\\scoop\\apps\\android-clt\\current'
+].filter(Boolean);
+
+let ANDROID_SDK = androidSdkCandidates.find(p => fs.existsSync(p));
+if (!ANDROID_SDK) {
+  throw new Error('❌ Android SDK not found! Please set ANDROID_HOME or ANDROID_SDK_ROOT environment variable.');
+}
+
+// Locate Build-Tools (prefer highest available or 34+)
+const buildToolsDir = path.join(ANDROID_SDK, 'build-tools');
+let CLT_BUILD_TOOLS = '';
+if (fs.existsSync(buildToolsDir)) {
+  const versions = fs.readdirSync(buildToolsDir).filter(v => fs.statSync(path.join(buildToolsDir, v)).isDirectory()).sort().reverse();
+  if (versions.length > 0) {
+    CLT_BUILD_TOOLS = path.join(buildToolsDir, versions[0]);
+  }
+}
+
+// Locate Platforms / android.jar
+const platformsDir = path.join(ANDROID_SDK, 'platforms');
+let ANDROID_JAR = '';
+if (fs.existsSync(platformsDir)) {
+  const platforms = fs.readdirSync(platformsDir).filter(p => fs.existsSync(path.join(platformsDir, p, 'android.jar'))).sort().reverse();
+  if (platforms.length > 0) {
+    ANDROID_JAR = path.join(platformsDir, platforms[0], 'android.jar');
+  }
+}
+if (!ANDROID_JAR) {
+  throw new Error(`❌ android.jar not found under ${platformsDir}!`);
+}
+
+// Locate Java toolchain
+const JAVAC = findBinary('javac', '.exe', [process.env.JAVA_HOME ? path.join(process.env.JAVA_HOME, 'bin') : null]);
+const KEYTOOL = findBinary('keytool', '.exe', [process.env.JAVA_HOME ? path.join(process.env.JAVA_HOME, 'bin') : null]);
+
+// Locate Android build tools binaries
+const AAPT = findBinary('aapt', '.exe', [CLT_BUILD_TOOLS]);
+const D8 = findBinary('d8', isWin ? '.bat' : '', [CLT_BUILD_TOOLS]);
+const ZIPALIGN = findBinary('zipalign', '.exe', [CLT_BUILD_TOOLS]);
+const APKSIGNER = findBinary('apksigner', isWin ? '.bat' : '', [CLT_BUILD_TOOLS]);
+
+console.log(`ℹ️  Toolchain:
+   Android SDK: ${ANDROID_SDK}
+   Build Tools: ${CLT_BUILD_TOOLS}
+   Android JAR: ${ANDROID_JAR}
+   javac:       ${JAVAC}
+   d8:          ${D8}
+   aapt:        ${AAPT}
+   zipalign:    ${ZIPALIGN}
+   apksigner:   ${APKSIGNER}`);
 
 const APP_DIR = path.resolve(REPO_ROOT, 'apps/android-observer-app/app');
 const MANIFEST = path.resolve(APP_DIR, 'src/main/AndroidManifest.xml');
@@ -64,16 +124,20 @@ try {
       if (fs.statSync(p).isDirectory()) {
         collectClasses(p);
       } else if (p.endsWith('.class')) {
-        classFiles.push(`"${p}"`);
+        classFiles.push(p);
       }
     }
   }
   collectClasses(BIN_DIR);
 
-  const d8Inputs = [...classFiles, ...libJars.map(j => `"${j}"`)];
-  execSync(`cmd.exe /c ""${D8}" --lib "${ANDROID_JAR}" --output "${WORK_DIR}" ${d8Inputs.join(' ')}"`, {
-    stdio: 'inherit'
-  });
+  // Write all input class paths into an argfile (@args.txt) so D8 reads raw paths without shell expansion of '$'
+  const d8ArgFile = path.join(WORK_DIR, 'd8_inputs.txt');
+  fs.writeFileSync(d8ArgFile, [...classFiles, ...libJars].join('\n'), 'utf8');
+
+  const d8Cmd = isWin
+    ? `cmd.exe /c ""${D8}" --lib "${ANDROID_JAR}" --output "${WORK_DIR}" @"${d8ArgFile}""`
+    : `"${D8}" --lib "${ANDROID_JAR}" --output "${WORK_DIR}" @"${d8ArgFile}"`;
+  execSync(d8Cmd, { stdio: 'inherit' });
 
   const dexPath = path.join(WORK_DIR, 'classes.dex');
   if (!fs.existsSync(dexPath)) {
@@ -114,12 +178,16 @@ try {
   });
 
   const signedApk = path.join(WORK_DIR, 'signed.apk');
-  execSync(`cmd.exe /c ""${APKSIGNER}" sign --ks "${keystorePath}" --ks-pass pass:${ksPass} --key-pass pass:${ksPass} --ks-key-alias "${alias}" --out "${signedApk}" "${alignedApk}""`, {
-    stdio: 'inherit'
-  });
+  const signCmd = isWin
+    ? `cmd.exe /c ""${APKSIGNER}" sign --ks "${keystorePath}" --ks-pass pass:${ksPass} --key-pass pass:${ksPass} --ks-key-alias "${alias}" --out "${signedApk}" "${alignedApk}""`
+    : `"${APKSIGNER}" sign --ks "${keystorePath}" --ks-pass pass:${ksPass} --key-pass pass:${ksPass} --ks-key-alias "${alias}" --out "${signedApk}" "${alignedApk}"`;
+  execSync(signCmd, { stdio: 'inherit' });
 
   // Verify APK signature
-  const verifyOutput = execSync(`cmd.exe /c ""${APKSIGNER}" verify --verbose "${signedApk}""`, {
+  const verifyCmd = isWin
+    ? `cmd.exe /c ""${APKSIGNER}" verify --verbose "${signedApk}""`
+    : `"${APKSIGNER}" verify --verbose "${signedApk}"`;
+  const verifyOutput = execSync(verifyCmd, {
     encoding: 'utf8'
   });
   console.log('   ✅ Verification Report:\n' + verifyOutput.trim().split('\n').map(l => '      ' + l).join('\n'));

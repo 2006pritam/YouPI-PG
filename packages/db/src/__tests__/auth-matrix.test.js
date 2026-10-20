@@ -13,7 +13,7 @@ import { QueueEngine } from '@youpi/core';
 import { TimingEngine } from '@youpi/core';
 import { AttributionEngine } from '@youpi/core';
 import { WebhookEngine } from '@youpi/core';
-import { generateQrSvg } from '../../../../apps/checkout-portal/src/qr.js';
+import { generateQrSvg } from '@youpi/core';
 import {
   buildUpiUri,
   buildUpiIntentUri,

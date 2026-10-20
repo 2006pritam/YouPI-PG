@@ -11,17 +11,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
-// Authoritative runtime mode enforcement (Part B1 & B4)
-process.env.YOUPI_MODE = 'production';
-process.env.NODE_ENV = 'production';
-
-// In production, reliably ensure environment variables from .env are loaded
+// In production, reliably ensure environment variables from .env are loaded first
 try {
   const rootEnv = path.resolve(rootDir, '.env');
   if (fs.existsSync(rootEnv) && typeof process.loadEnvFile === 'function') {
     process.loadEnvFile(rootEnv);
   }
 } catch {}
+
+// Authoritative runtime mode enforcement (start.js takes absolute precedence)
+process.env.YOUPI_MODE = 'production';
+process.env.NODE_ENV = 'production';
+
 
 console.log('====================================================');
 console.log('🚀 Starting YOUPI PG V2 — Production Gateway');

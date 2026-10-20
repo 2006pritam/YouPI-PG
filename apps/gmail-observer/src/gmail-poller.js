@@ -197,6 +197,7 @@ export class GmailPoller {
     this.timer = setInterval(() => {
       this.pollCycle().catch(() => {});
     }, this.pollIntervalMs);
+    if (this.timer.unref) this.timer.unref();
   }
 
   stop() {
@@ -205,13 +206,16 @@ export class GmailPoller {
       this.timer = null;
     }
     this.isRunning = false;
+    this._isPolling = false;
     console.log('[Gmail Observer] Poller stopped.');
   }
 
   async pollCycle() {
-    this.lastPollAt = new Date();
+    if (this._isPolling) return;
+    this._isPolling = true;
 
     try {
+      this.lastPollAt = new Date();
       const accessToken = await this.getAccessToken();
       if (!accessToken) return;
 
@@ -268,6 +272,8 @@ export class GmailPoller {
       }
     } catch (err) {
       console.warn('[Gmail Observer] pollCycle error:', err.message);
+    } finally {
+      this._isPolling = false;
     }
   }
 }

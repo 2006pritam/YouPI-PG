@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BrowserLauncher } from '@youpi/observer-sdk';
+import { getObserverToken } from '@youpi/common';
 import { BankSmsParser } from './sms-parser.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -39,7 +40,10 @@ export class GoogleMessagesAutomator {
 
   async fetchActivePaymentAmounts() {
     try {
-      const res = await fetch(`${this.apiBaseUrl}/api/v1/pollers/active-window`, { signal: AbortSignal.timeout(1500) });
+      const res = await fetch(`${this.apiBaseUrl}/api/v1/pollers/active-window`, {
+        headers: { 'Authorization': `Bearer ${getObserverToken()}` },
+        signal: AbortSignal.timeout(1500)
+      });
       if (res.ok) {
         const data = await res.json();
         return data.sessions || [];
@@ -211,6 +215,7 @@ export class GoogleMessagesAutomator {
         // Target busy or initializing
       }
     }, 2000);
+    if (this.checkTimer.unref) this.checkTimer.unref();
   }
 
   /**
@@ -226,10 +231,15 @@ export class GoogleMessagesAutomator {
         // Target busy or updating
       }
     }, 3000);
+    if (this.extractionTimer.unref) this.extractionTimer.unref();
   }
 
   async pollRecentMessages() {
-    const targets = await BrowserLauncher.getTargets(this.debuggingPort);
+    if (this._isPollingMessages) return;
+    this._isPollingMessages = true;
+
+    try {
+      const targets = await BrowserLauncher.getTargets(this.debuggingPort);
     const target = targets.find(t => (t.type === 'page' || !t.type) && t.url && t.url.includes('messages.google.com') && t.webSocketDebuggerUrl)
       || targets.find(t => t.url && t.url.includes('messages.google.com') && t.webSocketDebuggerUrl);
     if (!target) return;
@@ -335,6 +345,9 @@ export class GoogleMessagesAutomator {
         }
       }
     }
+  } finally {
+    this._isPollingMessages = false;
+  }
   }
 
   getStatus() {

@@ -58,6 +58,20 @@ function sanitizedForwardHeaders(req, targetHost) {
   return headers;
 }
 
+/**
+ * Replaces {{PLACEHOLDER}} tokens with escaped values.
+ *
+ * The replacement is done with a replacer function so that `$&`, `$'` and `` $` ``
+ * inside an attacker-controlled value are inserted literally instead of being
+ * expanded as replacement patterns.
+ */
+export function renderTemplate(template, values) {
+  return template.replace(/\{\{([A-Z0-9_]+)\}\}/g, (match, key) => {
+    if (!Object.prototype.hasOwnProperty.call(values, key)) return match;
+    return escapeHtml(values[key]);
+  });
+}
+
 // In production, reliably ensure environment variables from .env are loaded if not already provided
 if (!process.env.BASE_PAYMENT_API_URL && typeof process.loadEnvFile === 'function') {
   try {
@@ -149,19 +163,27 @@ export class CoinWalletStoreServer {
         return;
       }
 
-      // GET /assets/* (serve product screenshots and icons)
-      if (pathname.startsWith('/assets/') && (method === 'GET' || method === 'HEAD')) {
-        const assetName = path.basename(pathname);
-        const assetPath = path.join(__dirname, '../public/assets', assetName);
-        if (fs.existsSync(assetPath)) {
-          const ext = path.extname(assetName).toLowerCase();
-          const contentType = ext === '.png' ? 'image/png' : ext === '.svg' ? 'image/svg+xml' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'application/octet-stream';
+      // SERVE LOCAL PUBLIC ASSETS: /assets/*, /css/*, /js/*
+      if ((pathname.startsWith('/assets/') || pathname.startsWith('/css/') || pathname.startsWith('/js/')) && (method === 'GET' || method === 'HEAD')) {
+        const publicDir = path.resolve(__dirname, '../public');
+        const safeRelative = path.normalize(pathname.replace(/^\//, '')).replace(/^(\.\.(\/|\\|$))+/, '');
+        const targetPath = path.join(publicDir, safeRelative);
+        const rel = path.relative(publicDir, targetPath);
+
+        if (!rel.startsWith('..') && !path.isAbsolute(rel) && fs.existsSync(targetPath) && fs.statSync(targetPath).isFile()) {
+          const ext = path.extname(targetPath).toLowerCase();
+          const contentType = ext === '.css' ? 'text/css; charset=utf-8'
+            : ext === '.js' ? 'application/javascript; charset=utf-8'
+            : ext === '.png' ? 'image/png'
+            : ext === '.svg' ? 'image/svg+xml'
+            : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg'
+            : 'application/octet-stream';
           res.writeHead(200, {
             'Content-Type': contentType,
-            'Cache-Control': 'public, max-age=86400'
+            'Cache-Control': ext === '.css' || ext === '.js' ? 'no-cache' : 'public, max-age=86400'
           });
           if (method === 'HEAD') { res.end(); return; }
-          const stream = fs.createReadStream(assetPath);
+          const stream = fs.createReadStream(targetPath);
           stream.pipe(res);
           return;
         }
@@ -201,8 +223,8 @@ export class CoinWalletStoreServer {
         }
       }
 
-      // REVERSE PROXY: /checkout/* and /icons/* -> Checkout Portal (Port 7000)
-      if (pathname.startsWith('/checkout') || pathname.startsWith('/icons/')) {
+      // REVERSE PROXY: /checkout/*, /icons/*, /css/*, and /js/* -> Checkout Portal (Port 7000)
+      if (pathname.startsWith('/checkout') || pathname.startsWith('/icons/') || pathname.startsWith('/css/') || pathname.startsWith('/js/')) {
         const portalPort = Number(process.env.CHECKOUT_PORT || 7000);
         const proxyReq = http.request({
           hostname: '127.0.0.1',
@@ -304,12 +326,13 @@ export class CoinWalletStoreServer {
         const mode = url.searchParams.get('mode') || url.searchParams.get('payment_mode') || 'UPI';
         const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 
-        let rendered = this.orderSuccessHtml
-          .replaceAll('{{ORDER_ID}}', escapeHtml(orderId))
-          .replaceAll('{{AMOUNT}}', escapeHtml(amount))
-          .replaceAll('{{UTR}}', escapeHtml(utr))
-          .replaceAll('{{MODE}}', escapeHtml(mode))
-          .replaceAll('{{TIMESTAMP}}', escapeHtml(timestamp));
+        let rendered = renderTemplate(this.orderSuccessHtml, {
+          ORDER_ID: orderId,
+          AMOUNT: amount,
+          UTR: utr,
+          MODE: mode,
+          TIMESTAMP: timestamp
+        });
 
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
@@ -326,10 +349,12 @@ export class CoinWalletStoreServer {
         try { this.orderFailedHtml = fs.readFileSync(path.join(__dirname, 'order-failed.html'), 'utf8'); } catch {}
         const orderId = url.searchParams.get('order_id') || url.searchParams.get('orderId') || 'ORDER-DEMO';
         const reason = url.searchParams.get('reason') || 'Transaction verification timed out or declined.';
-        let rendered = this.orderFailedHtml
-          .replaceAll('{{ORDER_ID}}', escapeHtml(orderId))
-          .replaceAll('ORDER-#', escapeHtml(orderId))
-          .replaceAll('{{REASON}}', escapeHtml(reason));
+        let rendered = renderTemplate(this.orderFailedHtml, {
+          ORDER_ID: orderId,
+          REASON: reason
+        });
+        // Legacy template still carries a literal `ORDER-#` placeholder.
+        rendered = rendered.replace(/ORDER-#/g, () => escapeHtml(orderId));
 
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
@@ -345,7 +370,7 @@ export class CoinWalletStoreServer {
       if ((pathname === '/order-suspicious' || pathname === '/suspicious') && (method === 'GET' || method === 'HEAD')) {
         try { this.orderSuspiciousHtml = fs.readFileSync(path.join(__dirname, 'order-suspicious.html'), 'utf8'); } catch {}
         const orderId = url.searchParams.get('order_id') || url.searchParams.get('orderId') || 'ORDER-DEMO';
-        let rendered = this.orderSuspiciousHtml.replaceAll('{{ORDER_ID}}', escapeHtml(orderId));
+        let rendered = renderTemplate(this.orderSuspiciousHtml, { ORDER_ID: orderId });
 
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
@@ -361,7 +386,7 @@ export class CoinWalletStoreServer {
       if ((pathname === '/order-expired' || pathname === '/expired') && (method === 'GET' || method === 'HEAD')) {
         try { this.orderExpiredHtml = fs.readFileSync(path.join(__dirname, 'order-expired.html'), 'utf8'); } catch {}
         const orderId = url.searchParams.get('order_id') || url.searchParams.get('orderId') || 'ORDER-DEMO';
-        let rendered = this.orderExpiredHtml.replaceAll('{{ORDER_ID}}', escapeHtml(orderId));
+        let rendered = renderTemplate(this.orderExpiredHtml, { ORDER_ID: orderId });
 
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
@@ -377,7 +402,7 @@ export class CoinWalletStoreServer {
       if ((pathname === '/order-cancelled' || pathname === '/cancelled') && (method === 'GET' || method === 'HEAD')) {
         try { this.orderCancelledHtml = fs.readFileSync(path.join(__dirname, 'order-cancelled.html'), 'utf8'); } catch {}
         const orderId = url.searchParams.get('order_id') || url.searchParams.get('orderId') || 'ORDER-DEMO';
-        let rendered = this.orderCancelledHtml.replaceAll('{{ORDER_ID}}', escapeHtml(orderId));
+        let rendered = renderTemplate(this.orderCancelledHtml, { ORDER_ID: orderId });
 
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',

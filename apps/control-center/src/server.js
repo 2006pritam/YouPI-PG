@@ -183,6 +183,7 @@ export class ControlCenterServer {
         const pingTimer = setInterval(() => {
           try { res.write(': keepalive\n\n'); } catch { clearInterval(pingTimer); }
         }, 15000);
+        if (pingTimer.unref) pingTimer.unref();
 
         res.on('close', () => {
           clearInterval(pingTimer);

@@ -105,7 +105,6 @@ export class HttpServer {
     const set = this.sseClients.get(topic);
     set.add(res);
 
-    // Keepalive ping every 15s
     const pingInterval = setInterval(() => {
       try {
         res.write(': keepalive\n\n');
@@ -113,6 +112,7 @@ export class HttpServer {
         clearInterval(pingInterval);
       }
     }, 15000);
+    if (pingInterval.unref) pingInterval.unref();
 
     res.on('close', () => {
       clearInterval(pingInterval);

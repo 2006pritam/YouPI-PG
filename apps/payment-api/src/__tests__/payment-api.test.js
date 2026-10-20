@@ -355,9 +355,22 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
     assert.equal(bindRes.body.success, true);
     assert.equal(bindRes.body.customer.phoneNumber, '9111222333');
 
-    // 4. Inspect state: customer is attached!
+    // 4. Inspect state: the customer is attached, but their contact details are NOT
+    //    disclosed to an anonymous caller that only holds the payment id.
     const stateRes = await request(`/api/v1/checkout/${paymentId}/state`);
-    assert.equal(stateRes.body.customer.phoneNumber, '9111222333');
+    assert.equal(stateRes.body.customer, null);
+
+    // The customer themselves, presenting their own session token, do see their profile.
+    const selfState = await request(`/api/v1/checkout/${paymentId}/state`, {
+      headers: { 'x-customer-token': regRes.body.token }
+    });
+    assert.equal(selfState.body.customer.phoneNumber, '9111222333');
+
+    // The owning merchant, presenting its secret, sees the customer too.
+    const ownerState = await request(`/api/v1/checkout/${paymentId}/state`, {
+      headers: { 'X-Merchant-Key': merchantSecret }
+    });
+    assert.equal(ownerState.body.customer.phoneNumber, '9111222333');
 
     // 5. Test action trigger hook
     const hookRes = await request(`/api/v1/checkout/${paymentId}/trigger-hook`, {
@@ -799,5 +812,147 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
     } finally {
       await new Promise(cb => mockReceiver.close(cb));
     }
+  });
+
+  describe('Terminal Payment State HTTP Route Protections (Issue #4)', () => {
+    test('POST /api/v1/checkout/:id/retry-new-payment rejects terminal sessions with HTTP 400', async () => {
+      const prevActive = serverInstance.app.context.sessionRepo.findCurrentActiveOrProcessing('00000000-0000-0000-0000-000000000002');
+      if (prevActive) {
+        const terminalStatus = prevActive.status === PaymentStatus.PROCESSING ? PaymentStatus.FAILED : PaymentStatus.CANCELLED;
+        serverInstance.app.context.sessionRepo.transitionToTerminal(prevActive.id, terminalStatus);
+      }
+
+      // Create and cancel a payment session
+      const createRes = await request('/api/v1/payments', {
+        method: 'POST',
+        body: {
+          orderId: 'ORD-RETRY-TERM',
+          amount: '150.00',
+          currency: 'INR',
+          autoActivate: true
+        }
+      });
+      assert.equal(createRes.status, 201);
+      const paymentId = createRes.body.paymentId;
+
+      // Cancel the session
+      const cancelRes = await request(`/api/v1/checkout/${paymentId}/cancel`, {
+        method: 'POST'
+      });
+      assert.equal(cancelRes.status, 200);
+
+      // Attempt retry-new-payment on the cancelled session
+      const retryRes = await request(`/api/v1/checkout/${paymentId}/retry-new-payment`, {
+        method: 'POST'
+      });
+      assert.equal(retryRes.status, 400);
+      assert.ok(retryRes.body.error.includes('Cannot retry payment for terminal session'));
+    });
+
+    test('POST /api/v1/checkout/:id/select-method rejects PROCESSING sessions with HTTP 400', async () => {
+      const prevActive = serverInstance.app.context.sessionRepo.findCurrentActiveOrProcessing('00000000-0000-0000-0000-000000000002');
+      if (prevActive) {
+        const terminalStatus = prevActive.status === PaymentStatus.PROCESSING ? PaymentStatus.FAILED : PaymentStatus.CANCELLED;
+        serverInstance.app.context.sessionRepo.transitionToTerminal(prevActive.id, terminalStatus);
+      }
+
+      // Create and activate a payment session
+      const createRes = await request('/api/v1/payments', {
+        method: 'POST',
+        body: {
+          orderId: 'ORD-METHOD-PROC',
+          amount: '180.00',
+          currency: 'INR',
+          autoActivate: true
+        }
+      });
+      assert.equal(createRes.status, 201);
+      const paymentId = createRes.body.paymentId;
+      assert.equal(createRes.body.status, PaymentStatus.ACTIVE);
+
+      // Move to PROCESSING via payment-done
+      const doneRes = await request(`/api/v1/checkout/${paymentId}/payment-done`, {
+        method: 'POST'
+      });
+      assert.equal(doneRes.status, 200);
+      assert.equal(doneRes.body.status, PaymentStatus.PROCESSING);
+
+      // Attempt select-method on the processing session
+      const switchRes = await request(`/api/v1/checkout/${paymentId}/select-method`, {
+        method: 'POST',
+        body: { method: 'COD' }
+      });
+      assert.equal(switchRes.status, 400);
+      assert.ok(switchRes.body.error.includes('Cannot switch payment method while payment is in PROCESSING status'));
+    });
+
+    test('POST /api/v1/checkout/:id/confirm-cod rejects PROCESSING sessions with HTTP 400', async () => {
+      const prevActive = serverInstance.app.context.sessionRepo.findCurrentActiveOrProcessing('00000000-0000-0000-0000-000000000002');
+      if (prevActive) {
+        const terminalStatus = prevActive.status === PaymentStatus.PROCESSING ? PaymentStatus.FAILED : PaymentStatus.CANCELLED;
+        serverInstance.app.context.sessionRepo.transitionToTerminal(prevActive.id, terminalStatus);
+      }
+
+      // Create and activate a payment session
+      const createRes = await request('/api/v1/payments', {
+        method: 'POST',
+        body: {
+          orderId: 'ORD-COD-PROC',
+          amount: '220.00',
+          currency: 'INR',
+          autoActivate: true
+        }
+      });
+      assert.equal(createRes.status, 201);
+      const paymentId = createRes.body.paymentId;
+      assert.equal(createRes.body.status, PaymentStatus.ACTIVE);
+
+      // Move to PROCESSING
+      const doneRes = await request(`/api/v1/checkout/${paymentId}/payment-done`, {
+        method: 'POST'
+      });
+      assert.equal(doneRes.status, 200);
+      assert.equal(doneRes.body.status, PaymentStatus.PROCESSING);
+
+      // Attempt confirm-cod on processing session
+      const codRes = await request(`/api/v1/checkout/${paymentId}/confirm-cod`, {
+        method: 'POST'
+      });
+      assert.equal(codRes.status, 400);
+      assert.ok(codRes.body.error.includes('Cannot place COD order while payment is in PROCESSING status'));
+    });
+
+    test('POST /api/v1/checkout/:id/confirm-cod rejects terminal sessions with HTTP 400', async () => {
+      const prevActive = serverInstance.app.context.sessionRepo.findCurrentActiveOrProcessing('00000000-0000-0000-0000-000000000002');
+      if (prevActive) {
+        const terminalStatus = prevActive.status === PaymentStatus.PROCESSING ? PaymentStatus.FAILED : PaymentStatus.CANCELLED;
+        serverInstance.app.context.sessionRepo.transitionToTerminal(prevActive.id, terminalStatus);
+      }
+
+      const createRes = await request('/api/v1/payments', {
+        method: 'POST',
+        body: {
+          orderId: 'ORD-COD-TERM',
+          amount: '250.00',
+          currency: 'INR',
+          autoActivate: true
+        }
+      });
+      assert.equal(createRes.status, 201);
+      const paymentId = createRes.body.paymentId;
+
+      // Cancel the session
+      await request(`/api/v1/checkout/${paymentId}/cancel`, {
+        method: 'POST'
+      });
+
+
+      // Attempt confirm-cod on cancelled session
+      const codRes = await request(`/api/v1/checkout/${paymentId}/confirm-cod`, {
+        method: 'POST'
+      });
+      assert.equal(codRes.status, 400);
+      assert.ok(codRes.body.error.includes('Cannot place COD order for terminal session'));
+    });
   });
 });

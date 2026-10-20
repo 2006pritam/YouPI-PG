@@ -3480,6 +3480,30 @@
         .replace(/'/g, '&#039;');
     }
 
+    // Helper to escape HTML safely while preserving falsy values such as 0
+    function escapeHtmlValue(str) {
+      if (str === null || str === undefined) return '';
+      return escapeHtml(String(str));
+    }
+
+    // Escapes an attribute value that is delimited by double quotes.
+    // Single quotes are deliberately left alone: they cannot terminate the
+    // attribute, and the browser decodes entities before the inline handler
+    // runs, so escaping them here would not prevent a break-out anyway.
+    function escapeAttribute(str) {
+      return escapeHtmlValue(str)
+        .replace(/&#039;/g, "'")
+        .replace(/&quot;/g, '&quot;');
+    }
+
+    // Builds a JavaScript literal that is safe to place inside a double-quoted
+    // inline event handler attribute. Use instead of hand-written quotes:
+    //   onclick="confirmCounterPayment(${jsArg(id)}, ${jsArg(method)})"
+    function jsArg(value) {
+      const literal = JSON.stringify(value === null || value === undefined ? '' : String(value));
+      return escapeAttribute(literal);
+    }
+
     // --- REAL LIGHT / DARK THEME CONTROLLER ---
     let manualThemeOverride = null;
 
@@ -3709,10 +3733,10 @@
           <td>
             <div style="display:flex; gap:0.4rem;">
               ${!isRunning ? `
-                <button class="btn btn-success" style="padding:0.3rem 0.65rem; font-size:0.75rem;" onclick="startService('${s.id}')">▶ Start</button>
+                <button class="btn btn-success" style="padding:0.3rem 0.65rem; font-size:0.75rem;" onclick="startService(${jsArg(s.id)})">▶ Start</button>
               ` : `
-                <button class="btn btn-danger" style="padding:0.3rem 0.65rem; font-size:0.75rem;" onclick="stopService('${s.id}')">⏹ Stop</button>
-                <button class="btn btn-secondary" style="padding:0.3rem 0.65rem; font-size:0.75rem;" onclick="restartService('${s.id}')">🔄 Restart</button>
+                <button class="btn btn-danger" style="padding:0.3rem 0.65rem; font-size:0.75rem;" onclick="stopService(${jsArg(s.id)})">⏹ Stop</button>
+                <button class="btn btn-secondary" style="padding:0.3rem 0.65rem; font-size:0.75rem;" onclick="restartService(${jsArg(s.id)})">🔄 Restart</button>
               `}
               ${isRunning && s.port ? `
                 <a href="http://localhost:${s.port}" target="_blank" class="btn btn-secondary" style="padding:0.3rem 0.55rem; font-size:0.75rem; text-decoration:none;" title="Open in browser">↗</a>
@@ -4020,7 +4044,7 @@
         <td>Order #${escapeHtml(q.orderId)}</td>
         <td>₹${(Number(q.amountPaise) / 100).toFixed(2)}</td>
         <td><span class="badge badge-warning">QUEUED</span></td>
-        <td>${new Date(q.createdAt).toLocaleTimeString()}</td>
+        <td>${escapeHtmlValue(new Date(q.createdAt).toLocaleTimeString())}</td>
       </tr>
     `).join('');
     }
@@ -4107,8 +4131,8 @@
         <td>${new Date(p.createdAt).toLocaleTimeString()}</td>
         <td>
           <div style="display:flex; gap:0.4rem;">
-            <button class="btn btn-success" style="padding:0.35rem 0.75rem; font-size:0.78rem;" onclick="confirmCounterPayment('${p.id}', '${p.method}')">✓ Approve</button>
-            <button class="btn btn-danger" style="padding:0.35rem 0.75rem; font-size:0.78rem;" onclick="declineCounterPayment('${p.id}', '${p.method}')">✕ Decline</button>
+            <button class="btn btn-success" style="padding:0.35rem 0.75rem; font-size:0.78rem;" onclick="confirmCounterPayment(${jsArg(p.id)}, ${jsArg(p.method)})">✓ Approve</button>
+            <button class="btn btn-danger" style="padding:0.35rem 0.75rem; font-size:0.78rem;" onclick="declineCounterPayment(${jsArg(p.id)}, ${jsArg(p.method)})">✕ Decline</button>
           </div>
         </td>
       </tr>
@@ -4181,14 +4205,35 @@
           <td>${escapeHtml(o.customerPhone || '-')}</td>
           <td>${new Date(o.placedAt).toLocaleTimeString()}</td>
           <td>
-            <a href="${API_BASE}/api/v1/orders/${o.orderId}/cod" target="_blank" class="btn btn-secondary" style="padding:0.25rem 0.5rem; font-size:0.75rem; text-decoration:none;">
+            <button type="button" data-cod-order="${escapeHtml(o.orderId)}" class="btn btn-secondary" style="padding:0.25rem 0.5rem; font-size:0.75rem;">
               API ↗
-            </a>
+            </button>
           </td>
         </tr>
       `).join('');
       } catch (e) { }
     }
+
+    // The COD order API only returns the customer to an authenticated caller, and a plain
+    // link would navigate without the admin token (authedFetch only covers /admin/ routes),
+    // so fetch it with the bearer and show the JSON in a new tab.
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-cod-order]');
+      if (!btn) return;
+      const tab = window.open('', '_blank');
+      try {
+        await window.__youpiAdminAuth.ensure();
+        const res = await fetch(`${API_BASE}/api/v1/orders/${encodeURIComponent(btn.dataset.codOrder)}/cod`, {
+          headers: { Authorization: 'Bearer ' + window.__youpiAdminAuth.token() }
+        });
+        const body = JSON.stringify(await res.json(), null, 2);
+        const url = URL.createObjectURL(new Blob([body], { type: 'application/json' }));
+        if (tab) tab.location.href = url; else window.open(url, '_blank');
+      } catch (err) {
+        if (tab) tab.close();
+        alert('Could not load the COD order details.');
+      }
+    });
 
     // --- TRANSACTIONS LEDGER ---
     async function fetchPaymentsLedger() {
@@ -4201,16 +4246,16 @@
         tbody.innerHTML = (data.payments || []).map(p => {
           let verifyBadge = '<span style="color:var(--text-muted); font-size:0.75rem;">-</span>';
           if (p.status === 'SUCCESS') {
-            const tag = p.verificationTag || (p.verificationLevel >= 2 ? 'Dual Verification' : 'Single Verification');
-            if (p.verificationLevel >= 2) {
-              verifyBadge = `<span class="badge badge-success">✓✓ ${tag}</span>`;
-            } else {
-              verifyBadge = `<span class="badge badge-info">✓ ${tag}</span>`;
-            }
+          const tag = p.verificationTag || (p.verificationLevel >= 2 ? 'Dual Verification' : 'Single Verification');
+          if (p.verificationLevel >= 2) {
+            verifyBadge = `<span class="badge badge-success">✓✓ ${escapeHtmlValue(tag)}</span>`;
+          } else {
+            verifyBadge = `<span class="badge badge-info">✓ ${escapeHtmlValue(tag)}</span>`;
           }
+        }
 
           const sourcesChips = (p.verificationSources && p.verificationSources.length > 0)
-            ? p.verificationSources.map(s => `<code style="font-size:0.7rem; background:#0f172a; padding:0.15rem 0.35rem; border-radius:0.25rem; margin-right:0.2rem; border:1px solid var(--border); color:#93c5fd;">${s === 'GOOGLE_MESSAGES' ? 'SMS' : s}</code>`).join('')
+            ? p.verificationSources.map(s => `<code style="font-size:0.7rem; background:#0f172a; padding:0.15rem 0.35rem; border-radius:0.25rem; margin-right:0.2rem; border:1px solid var(--border); color:#93c5fd;">${s === 'GOOGLE_MESSAGES' ? 'SMS' : escapeHtmlValue(s)}</code>`).join('')
             : '<span style="color:var(--text-muted); font-size:0.75rem;">-</span>';
 
           return `
@@ -4218,12 +4263,12 @@
             <td><strong>Order #${escapeHtml(p.orderId)}</strong></td>
             <td><code>${p.id}</code></td>
             <td>₹${(Number(p.amountPaise) / 100).toFixed(2)}</td>
-            <td>${p.method}</td>
-            <td><span class="badge ${p.status === 'SUCCESS' ? 'badge-success' : (p.status === 'ACTIVE' ? 'badge-info' : 'badge-danger')}">${p.status}</span></td>
+            <td>${escapeHtmlValue(p.method)}</td>
+            <td><span class="badge ${p.status === 'SUCCESS' ? 'badge-success' : (p.status === 'ACTIVE' ? 'badge-info' : 'badge-danger')}">${escapeHtmlValue(p.status)}</span></td>
             <td>${verifyBadge}</td>
             <td>${sourcesChips}</td>
-            <td>${new Date(p.createdAt).toLocaleTimeString()}</td>
-            <td>${p.completedAt ? new Date(p.completedAt).toLocaleTimeString() : '-'}</td>
+            <td>${escapeHtmlValue(new Date(p.createdAt).toLocaleTimeString())}</td>
+            <td>${p.completedAt ? escapeHtmlValue(new Date(p.completedAt).toLocaleTimeString()) : '-'}</td>
           </tr>
         `;
         }).join('');
@@ -4477,11 +4522,11 @@
 
         let actionBtns = '';
         if (!a.isActive) {
-          actionBtns += `<button class="btn btn-primary" style="padding:0.35rem 0.65rem; font-size:0.78rem; margin-right:0.4rem;" onclick="activateVpa('${a.id}')">Activate</button>`;
+          actionBtns += `<button class="btn btn-primary" style="padding:0.35rem 0.65rem; font-size:0.78rem; margin-right:0.4rem;" onclick="activateVpa(${jsArg(a.id)})">Activate</button>`;
         } else {
-          actionBtns += `<button class="btn btn-secondary" style="padding:0.35rem 0.65rem; font-size:0.78rem; margin-right:0.4rem;" onclick="toggleVpa('${a.id}')">Deactivate</button>`;
+          actionBtns += `<button class="btn btn-secondary" style="padding:0.35rem 0.65rem; font-size:0.78rem; margin-right:0.4rem;" onclick="toggleVpa(${jsArg(a.id)})">Deactivate</button>`;
         }
-        actionBtns += `<button class="btn btn-danger" style="padding:0.35rem 0.65rem; font-size:0.78rem;" onclick="deleteVpa('${escapeHtml(a.id)}', '${escapeHtml(a.upiId)}')">Delete</button>`;
+        actionBtns += `<button class="btn btn-danger" style="padding:0.35rem 0.65rem; font-size:0.78rem;" onclick="deleteVpa(${jsArg(a.id)}, ${jsArg(a.upiId)})">Delete</button>`;
 
         return `
         <tr style="${a.isActive ? 'background:var(--primary-light);' : ''}">
@@ -5013,7 +5058,7 @@
           <td><code style="font-size:0.75rem; color:#38bdf8;">${escapeHtml(id)}</code></td>
           <td><span style="font-size:0.75rem; color:var(--text-muted);">${timeStr}</span></td>
           <td>
-            <button class="btn btn-danger" style="padding:0.25rem 0.6rem; font-size:0.72rem;" onclick="unpairSmsDevice('${escapeHtml(id)}')">Unpair</button>
+            <button class="btn btn-danger" style="padding:0.25rem 0.6rem; font-size:0.72rem;" onclick="unpairSmsDevice(${jsArg(id)})">Unpair</button>
           </td>
         </tr>
       `;
@@ -5154,9 +5199,11 @@
         };
 
         const onMessage = (event) => {
-          if (event.data && event.data.type === 'GMAIL_OAUTH_SUCCESS') {
-            cleanup(event.data.email);
-          }
+          if (!event.data || event.data.type !== 'GMAIL_OAUTH_SUCCESS') return;
+          // Only the OAuth popup we opened may report a successful link.
+          if (event.source !== googleAuthPopup) return;
+          if (event.origin !== window.location.origin) return;
+          cleanup(event.data.email);
         };
         window.addEventListener('message', onMessage);
 
@@ -5575,12 +5622,12 @@
             <div class="cashier-modal-header">
               <div style="display:flex; align-items:center; gap:6px;">
                 <span class="cashier-modal-badge ${badgeClass}">${methodLabel}</span>
-                <strong style="color:#ffffff; font-size:12px; font-family:monospace;">${orderIdStr}</strong>
-                <span style="color:#f59e0b; font-size:12px; font-weight:700;">${amountStr}</span>
+                <strong style="color:#ffffff; font-size:12px; font-family:monospace;">${escapeHtmlValue(orderIdStr)}</strong>
+                <span style="color:#f59e0b; font-size:12px; font-weight:700;">${escapeHtmlValue(amountStr)}</span>
               </div>
               <div style="display:flex; align-items:center; gap:4px;">
-                <button type="button" class="cashier-btn-minimize" onclick="toggleMinimizeCard('${p.id}')">▲</button>
-                <button type="button" class="cashier-btn-accept" style="padding:4px 8px; font-size:11px;" onclick="confirmCounterPayment('${p.id}', '${p.method}')">✓ Accept</button>
+                <button type="button" class="cashier-btn-minimize" onclick="toggleMinimizeCard(${jsArg(p.id)})">▲</button>
+                <button type="button" class="cashier-btn-accept" style="padding:4px 8px; font-size:11px;" onclick="confirmCounterPayment(${jsArg(p.id)}, ${jsArg(p.method)})">✓ Accept</button>
               </div>
             </div>
           </div>
@@ -5592,24 +5639,24 @@
           <div class="cashier-modal-header">
             <div style="display:flex; align-items:center; gap:8px;">
               <span class="cashier-modal-badge ${badgeClass}">${methodLabel}</span>
-              <strong style="color:#ffffff; font-size:13px; font-family:monospace;">${orderIdStr}</strong>
+              <strong style="color:#ffffff; font-size:13px; font-family:monospace;">${escapeHtmlValue(orderIdStr)}</strong>
             </div>
-            <button type="button" class="cashier-btn-minimize" onclick="toggleMinimizeCard('${p.id}')">—</button>
+            <button type="button" class="cashier-btn-minimize" onclick="toggleMinimizeCard(${jsArg(p.id)})">—</button>
           </div>
           <div class="cashier-modal-body">
             <div class="cashier-modal-amount-row">
               <div>
                 <div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Payable at Desk</div>
-                <div style="font-size:1.35rem; font-weight:900; color:${isCash ? '#22c55e' : '#38bdf8'};">${amountStr}</div>
+                <div style="font-size:1.35rem; font-weight:900; color:${isCash ? '#22c55e' : '#38bdf8'};">${escapeHtmlValue(amountStr)}</div>
               </div>
               <div style="text-align:right;">
-                <div style="font-size:11px; color:var(--text-muted);">${customerText}</div>
+                <div style="font-size:11px; color:var(--text-muted);">${escapeHtmlValue(customerText)}</div>
                 <div style="font-size:11px; color:#64748b; margin-top:2px;">Requested at counter</div>
               </div>
             </div>
             <div class="cashier-modal-actions">
-              <button type="button" class="cashier-btn-accept" onclick="confirmCounterPayment('${p.id}', '${p.method}')">✓ Confirm &amp; Accept</button>
-              <button type="button" class="cashier-btn-decline" onclick="declineCounterPayment('${p.id}', '${p.method}')">✕ Decline</button>
+              <button type="button" class="cashier-btn-accept" onclick="confirmCounterPayment(${jsArg(p.id)}, ${jsArg(p.method)})">✓ Confirm &amp; Accept</button>
+              <button type="button" class="cashier-btn-decline" onclick="declineCounterPayment(${jsArg(p.id)}, ${jsArg(p.method)})">✕ Decline</button>
             </div>
           </div>
         </div>
@@ -6322,7 +6369,7 @@
           else if (s.status === 'CANCELLED' || s.status === 'EXPIRED' || s.status === 'FAILED') { badgeColor = '#ffffff'; badgeBg = '#ef4444'; }
 
           return `
-          <div class="sim-session-row" onclick="simPickSession('${s.id}')" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0.65rem; border-radius:6px; margin-bottom:0.35rem; background:#0f172a; border:1px solid #1e293b; transition:all 0.15s ease;" id="simSessItem_${s.id}">
+          <div class="sim-session-row" onclick="simPickSession(${jsArg(s.id)})" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0.65rem; border-radius:6px; margin-bottom:0.35rem; background:#0f172a; border:1px solid #1e293b; transition:all 0.15s ease;" id="simSessItem_${escapeAttribute(s.id)}">
             <div>
               <div style="display:flex; align-items:center; gap:0.4rem;">
                 <input type="radio" name="simSessionRadio" id="radio_${s.id}" style="accent-color:#3b82f6; cursor:pointer;" />
@@ -6719,7 +6766,7 @@
           <td><span class="badge badge-info" style="font-size:0.7rem;">${escapeHtml(u.source || 'SMS')}</span></td>
           <td style="text-align:right;">
             <div style="display:inline-flex; gap:0.4rem;">
-              <button class="btn btn-secondary" style="padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="viewBanDetails('${u.id}')">🔍 Details</button>
+              <button class="btn btn-secondary" style="padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="viewBanDetails(${jsArg(u.id)})">🔍 Details</button>
               <button class="btn btn-success" style="padding:0.3rem 0.6rem; font-size:0.75rem; background:#059669; border-color:#059669;" onclick="promptUnbanCustomer('${u.id}', '${escapeHtml(u.name || '')}', '${escapeHtml(u.phone || u.mobileNumber || '')}')">🔓 Unban</button>
             </div>
           </td>
@@ -7056,7 +7103,7 @@
             <td style="color:#f87171; font-size:0.8rem;">${escapeHtml(e.fraudReason || '-')}</td>
             <td><code style="color:#fca5a5; font-size:0.75rem; background:#020617; padding:2px 6px; border-radius:4px;">${escapeHtml(rawSnippet)}</code></td>
             <td style="text-align:right;">
-              ${e.customerId ? `<button class="btn btn-secondary" style="padding:0.25rem 0.5rem; font-size:0.75rem;" onclick="viewBanDetails('${e.customerId}')">View Dossier</button>` : '-'}
+              ${e.customerId ? `<button class="btn btn-secondary" style="padding:0.25rem 0.5rem; font-size:0.75rem;" onclick="viewBanDetails(${jsArg(e.customerId)})">View Dossier</button>` : '-'}
             </td>
           </tr>
         `;
