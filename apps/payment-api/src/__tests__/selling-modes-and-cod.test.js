@@ -4,7 +4,7 @@ import http from 'node:http';
 import { Database } from '@youpi/db';
 import { startServer as startPaymentApi } from '../index.js';
 import { PaymentStatus, PaymentMethod, SellingMode } from '@youpi/common';
-import { authHeadersFor } from '../../../../scripts/test-support.js';
+import { authHeaders, authHeadersFor } from '../../../../scripts/test-support.js';
 
 describe('Architectural Update: Selling Modes (Online vs Offline), COD Flow, & Clean VPA Config', () => {
   let apiInstance;
@@ -198,8 +198,17 @@ describe('Architectural Update: Selling Modes (Online vs Offline), COD Flow, & C
     assert.equal(checkBRes.body.status, PaymentStatus.ACTIVE);
     assert.equal(checkBRes.body.queuePosition, 0);
 
-    // Developer API endpoint: GET /api/v1/orders/:orderId/cod
-    const devOrderRes = await request('/api/v1/orders/ORDER-COD-A/cod');
+    // Order ids are guessable, so an anonymous caller must not get the delivery contact or metadata.
+    for (const path of ['/api/v1/orders/ORDER-COD-A/cod', `/api/v1/payments/${paymentIdA}/cod`, `/api/v1/checkout/${paymentIdA}/cod`]) {
+      const anonRes = await request(path);
+      assert.equal(anonRes.status, 200);
+      assert.equal(anonRes.body.method, 'COD');
+      assert.equal(anonRes.body.customer, null, `${path} leaked the customer`);
+      assert.equal(anonRes.body.metadata, undefined, `${path} leaked metadata`);
+    }
+
+    // Developer API endpoint: GET /api/v1/orders/:orderId/cod (owner credential required for the customer)
+    const devOrderRes = await request('/api/v1/orders/ORDER-COD-A/cod', { headers: authHeaders() });
     assert.equal(devOrderRes.status, 200);
     assert.equal(devOrderRes.body.orderId, 'ORDER-COD-A');
     assert.equal(devOrderRes.body.paymentId, paymentIdA);
@@ -211,7 +220,8 @@ describe('Architectural Update: Selling Modes (Online vs Offline), COD Flow, & C
     assert.equal(devOrderRes.body.customer.mobileNumber, '9876543210');
 
     // Developer API endpoint: GET /api/v1/payments/:id/cod
-    const devPayRes = await request(`/api/v1/payments/${paymentIdA}/cod`);
+    const devPayRes = await request(`/api/v1/payments/${paymentIdA}/cod`, { headers: authHeaders() });
+    assert.equal(devPayRes.body.customer.name, 'Rahul Sharma');
     assert.equal(devPayRes.status, 200);
     assert.equal(devPayRes.body.paymentId, paymentIdA);
     assert.equal(devPayRes.body.orderId, 'ORDER-COD-A');
