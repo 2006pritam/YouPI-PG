@@ -78,7 +78,8 @@ export function createPaymentApp(customDb = null, options = {}) {
     sessionRepo,
     accountRepo,
     eventEmitter,
-    auditRepo
+    auditRepo,
+    activeDurationMs: Number(process.env.PAYMENT_ACTIVE_WINDOW_MS || 300000)
   });
 
   const timingEngine = new TimingEngine({
