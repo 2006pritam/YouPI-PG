@@ -40,9 +40,6 @@ export class GoogleMessagesAutomator {
 
   async fetchActivePaymentAmounts() {
     try {
-      if (this.smsService && this.smsService.observerClient && typeof this.smsService.observerClient.getActiveWindow === 'function') {
-        return await this.smsService.observerClient.getActiveWindow();
-      }
       const res = await fetch(`${this.apiBaseUrl}/api/v1/pollers/active-window`, {
         headers: { 'Authorization': `Bearer ${getObserverToken()}` },
         signal: AbortSignal.timeout(1500)

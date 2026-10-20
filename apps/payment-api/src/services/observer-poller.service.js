@@ -204,12 +204,15 @@ export class ObserverPollerService {
   getActiveSessions() {
     try {
       const sixtySecsAgo = new Date(Date.now() - 60000).toISOString();
+      // A session that already reached the Triple Verification Standard (level 3) is fully
+      // confirmed: sweeping it again can never change its outcome, so it is excluded. This
+      // preserves the upper bound the previous per-session sweep timers enforced.
       return this.db.query(`
         SELECT id, receiving_account_id, amount_paise, status, verification_level
         FROM payment_sessions
         WHERE method = 'UPI' AND (
-          status IN ('ACTIVE', 'PROCESSING')
-          OR (status = 'SUCCESS' AND verification_level < 2 AND completed_at >= ?)
+          (status IN ('ACTIVE', 'PROCESSING') AND COALESCE(verification_level, 0) < 3)
+          OR (status = 'SUCCESS' AND COALESCE(verification_level, 0) < 2 AND completed_at >= ?)
         )
       `, [sixtySecsAgo]);
     } catch {

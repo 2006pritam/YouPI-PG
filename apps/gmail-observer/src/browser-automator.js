@@ -40,9 +40,6 @@ export class GmailBrowserAutomator {
 
   async fetchActivePaymentAmounts() {
     try {
-      if (this.gmailPoller && this.gmailPoller.observerClient && typeof this.gmailPoller.observerClient.getActiveWindow === 'function') {
-        return await this.gmailPoller.observerClient.getActiveWindow();
-      }
       const res = await fetch(`${this.apiBaseUrl}/api/v1/pollers/active-window`, {
         headers: { 'Authorization': `Bearer ${getObserverToken()}` },
         signal: AbortSignal.timeout(1500)
