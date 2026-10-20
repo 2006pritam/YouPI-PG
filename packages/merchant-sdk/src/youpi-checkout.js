@@ -384,7 +384,9 @@ _isSafeRedirect(url) {
      */
     _checkoutOrigin() {
       try {
-        const url = this.options.checkoutUrl || this.options.portalUrl;
+        // Only an explicitly configured checkout URL is authoritative. `portalUrl` defaults
+        // to localhost, so including it would make this check reject legitimate messages.
+        const url = this.options.checkoutUrl;
         if (url) return new URL(url, window.location.href).origin;
       } catch (e) { }
       return null;
