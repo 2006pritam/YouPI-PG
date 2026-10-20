@@ -5,7 +5,8 @@ import {
   assertValidTransition,
   toPublicOutcome,
   ObservationNormalizer,
-  AttributionEngine
+  AttributionEngine,
+  BankSmsParser
 } from '../index.js';
 import {
   PaymentStatus,
@@ -288,6 +289,42 @@ describe('@youpi/core Unit & Integration Tests', () => {
       const tickets = ticketRepo.findTicketsByCustomer(customerA.id);
       assert.equal(tickets.length, 1);
       assert.ok(tickets[0].subject.includes('LATE PAYMENT DETECTED'));
+    });
+  });
+
+  describe('Bank SMS Parser UTR & Amount Extraction', () => {
+    test('does not extract English words as UTR when ref prefix is absent', () => {
+      const sms = {
+        text: 'Dear Customer, your ac no. XXXXX12345 has been credited with Rs 500.00 on 18-Oct-26.'
+      };
+      const parsed = BankSmsParser.parse(sms);
+      assert.ok(parsed);
+      assert.equal(parsed.amount, '500.00');
+      assert.equal(parsed.amountPaise, 50000n);
+      assert.notEqual(parsed.bankReferenceNumber, 'Customer');
+      assert.equal(parsed.bankReferenceNumber, undefined);
+    });
+
+    test('extracts valid UTR from explicit ref no prefix', () => {
+      const sms = {
+        text: 'A/C 1234 credited by Rs. 499.00 on 18-10-26. UPI Ref no 429182736451 from rahul@upi.'
+      };
+      const parsed = BankSmsParser.parse(sms);
+      assert.ok(parsed);
+      assert.equal(parsed.amount, '499.00');
+      assert.equal(parsed.amountPaise, 49900n);
+      assert.equal(parsed.bankReferenceNumber, '429182736451');
+      assert.equal(parsed.senderVpa, 'rahul@upi');
+    });
+
+    test('extracts standalone 12-digit UTR', () => {
+      const sms = {
+        text: 'Rs 1200.00 received in your account via UPI 987654321012 on 18/10.'
+      };
+      const parsed = BankSmsParser.parse(sms);
+      assert.ok(parsed);
+      assert.equal(parsed.amount, '1200.00');
+      assert.equal(parsed.bankReferenceNumber, '987654321012');
     });
   });
 });
