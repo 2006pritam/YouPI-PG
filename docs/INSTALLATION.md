@@ -6,7 +6,8 @@ YOUPI PG is distributed as source code and is engineered to run directly as nati
 **Zero Docker Requirement:** Docker, Docker Compose, and external container engines are completely optional and not required. Standard `npm install` works out-of-the-box across all workspace packages.
 
 ### Prerequisites
-- **Node.js:** v22.5.0 or higher (v24 LTS recommended) for native `node:sqlite` (`DatabaseSync`)
+- **Node.js:** v22.13.0 or higher (v24 LTS recommended) for native `node:sqlite` (`DatabaseSync`)
+  (22.5.0–22.12.x cannot run this project: `node:sqlite` is unflagged only from 22.13.0)
 - **Database:** Built-in zero-dependency SQLite WAL with automatic schema provisioning (or optional PostgreSQL v14+)
 - **Java/JDK (Optional, for Android APK build):** OpenJDK 17+
 - **Docker & Docker Compose (Optional):** For containerized zero-setup execution
