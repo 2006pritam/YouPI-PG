@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { generateQrSvg } from './qr.js';
+import { generateQrSvg } from '@youpi/core';
 import { getInternalServiceToken } from '@youpi/common';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,6 +14,13 @@ const BASE_SECURITY_HEADERS = Object.freeze({
   'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'; object-src 'none'"
+});
+
+/** Security headers applied to embeddable checkout pages allowing universal merchant iframe integration. */
+const CHECKOUT_FRAME_HEADERS = Object.freeze({
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Content-Security-Policy': "default-src 'self' data: blob:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors *; base-uri 'none'; form-action 'self'; object-src 'none'"
 });
 
 /**
@@ -97,12 +104,27 @@ export class CheckoutServer {
     }
   }
 
-  renderHtml(paymentId, state) {
+  loadTemplateWithPartials() {
     try {
-      this.template = fs.readFileSync(this.htmlTemplatePath, 'utf8');
-    } catch {}
+      let content = fs.readFileSync(this.htmlTemplatePath, 'utf8');
+      const partialsDir = path.resolve(__dirname, 'views', 'partials');
+      content = content.replace(/<!--\s*include:partials\/([a-zA-Z0-9_\-.]+)\s*-->/g, (match, filename) => {
+        try {
+          const partialPath = path.resolve(partialsDir, filename);
+          if (partialPath.startsWith(partialsDir) && fs.existsSync(partialPath)) {
+            return fs.readFileSync(partialPath, 'utf8');
+          }
+        } catch {}
+        return match;
+      });
+      return content;
+    } catch {
+      return this.template || '';
+    }
+  }
 
-    let html = this.template;
+  renderHtml(paymentId, state) {
+    let html = this.loadTemplateWithPartials();
 
     const appName = state?.branding?.appName || 'YouPI PG';
     const primaryColor = state?.branding?.primaryColor || '#0b63e5';
@@ -243,11 +265,14 @@ export class CheckoutServer {
         return;
       }
 
-      // Static icons: GET /icons/:filename
+      // Static icons: GET /icons/:filename with path traversal protection
       if (pathname.startsWith('/icons/')) {
         const iconName = path.basename(pathname);
-        const iconPath = path.join(__dirname, '..', 'public', 'icons', iconName);
-        if (fs.existsSync(iconPath)) {
+        const iconDir = path.resolve(__dirname, '..', 'public', 'icons');
+        const iconPath = path.resolve(iconDir, iconName);
+        const relative = path.relative(iconDir, iconPath);
+        const isSecure = relative && !relative.startsWith('..') && !path.isAbsolute(relative);
+        if (isSecure && fs.existsSync(iconPath)) {
           const ext = path.extname(iconName).toLowerCase();
           const contentType = ext === '.png' ? 'image/png' : ext === '.svg' ? 'image/svg+xml' : 'image/jpeg';
           res.writeHead(200, {
@@ -256,6 +281,28 @@ export class CheckoutServer {
             'Access-Control-Allow-Origin': '*'
           });
           fs.createReadStream(iconPath).pipe(res);
+          return;
+        }
+      }
+
+      // Static CSS & JS Asset Handler with Secure Path Traversal Prevention
+      if (pathname.startsWith('/css/') || pathname.startsWith('/js/')) {
+        const assetFolder = pathname.startsWith('/css/') ? 'css' : 'js';
+        const assetName = path.basename(pathname);
+        const assetDir = path.resolve(__dirname, '..', 'public', assetFolder);
+        const assetPath = path.resolve(assetDir, assetName);
+
+        const relative = path.relative(assetDir, assetPath);
+        const isSecure = relative && !relative.startsWith('..') && !path.isAbsolute(relative);
+
+        if (isSecure && fs.existsSync(assetPath)) {
+          const contentType = assetFolder === 'css' ? 'text/css; charset=utf-8' : 'application/javascript; charset=utf-8';
+          res.writeHead(200, {
+            'Content-Type': contentType,
+            'Cache-Control': 'public, max-age=86400',
+            'Access-Control-Allow-Origin': '*'
+          });
+          fs.createReadStream(assetPath).pipe(res);
           return;
         }
       }
@@ -274,7 +321,7 @@ export class CheckoutServer {
           'Pragma': 'no-cache',
           'Expires': '0',
           'Access-Control-Allow-Origin': '*',
-          ...BASE_SECURITY_HEADERS
+          ...CHECKOUT_FRAME_HEADERS
         });
         res.end(svg);
         return;
@@ -293,7 +340,7 @@ res.writeHead(200, {
             'Pragma': 'no-cache',
             'Expires': '0',
             'Access-Control-Allow-Origin': '*',
-            ...BASE_SECURITY_HEADERS
+            ...CHECKOUT_FRAME_HEADERS
           });
         res.end(rendered);
         return;

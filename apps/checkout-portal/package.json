@@ -9,6 +9,7 @@
     "test": "node --test src/__tests__/**/*.test.js"
   },
   "dependencies": {
-    "@youpi/common": "*"
+    "@youpi/common": "*",
+    "@youpi/core": "*"
   }
 }

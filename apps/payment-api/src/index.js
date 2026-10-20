@@ -335,7 +335,8 @@ export function createPaymentApp(customDb = null, options = {}) {
     checkoutBaseUrl,
     whatsappBerryService,
     webhookEngine,
-    observerPollerService
+    observerPollerService,
+    otpCooldownMs: options.otpCooldownMs
   };
 
   registerPaymentRoutes(server, context);
