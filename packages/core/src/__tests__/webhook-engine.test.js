@@ -201,6 +201,14 @@ describe('Webhook Engine Integration Tests', () => {
 
     const updatedDelivery = db.queryOne('SELECT * FROM webhook_deliveries WHERE id = ?', [result.deliveryId]);
     assert.equal(updatedDelivery.is_successful, 1);
+
+    // A retried delivery must carry the SAME MAC as a first delivery: the signature covers
+    // the exact transmitted body, so the merchant's verification accepts it too. Signing the
+    // retry as `${timestamp}.${payload}` made every retry fail verification.
+    const retried = receivedWebhooks.filter(h => h.body && h.body.orderId === 'HOOK-ORD-FAIL').pop();
+    assert.ok(retried, 'retried webhook not received');
+    const retrySig = retried.headers['x-gateway-signature'].replace('sha256=', '');
+    assert.equal(verifyHmac(JSON.stringify(retried.body), merchant.webhookSecret, retrySig), true);
   });
 
   test('persists delivery failure record when merchant webhookSecret is missing', async () => {
