@@ -18,10 +18,12 @@ services:
     container_name: youpi-pg
     restart: unless-stopped
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       YOUPI_MODE: ${YOUPI_MODE:-localhost}
+      YOUPI_BIND_HOST: "0.0.0.0"
       BASE_PAYMENT_API_URL: http://localhost:6100
       BASE_CHECKOUT_URL: http://localhost:7000
       BASE_ADMIN_URL: http://localhost:6001
@@ -45,7 +47,7 @@ services:
     volumes:
       - youpi-data:/app/data
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:6100/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:6100/health"]
       interval: 30s
       timeout: 10s
       retries: 3

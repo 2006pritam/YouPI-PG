@@ -27,6 +27,7 @@ COPY apps/gmail-observer/package.json ./apps/gmail-observer/
 COPY apps/control-center/package.json ./apps/control-center/
 COPY apps/coin-wallet-store/package.json ./apps/coin-wallet-store/
 COPY apps/payment-help/package.json ./apps/payment-help/
+COPY apps/android-observer-app/package.json ./apps/android-observer-app/
 
 # Clean installation of dependencies with script safety
 RUN npm ci --ignore-scripts
@@ -39,10 +40,14 @@ COPY . .
 # Compile TypeScript packages
 RUN npm run build
 
+# Prune development tooling before packaging production runner image
+RUN npm prune --omit=dev
+
 # ── Stage 3: Runner ─────────────────────────────────────────────────────────
 FROM base AS runner
 ENV NODE_ENV=production
 ENV YOUPI_MODE=production
+ENV YOUPI_BIND_HOST=0.0.0.0
 
 WORKDIR /app
 
@@ -72,6 +77,6 @@ USER youpi
 
 # Native healthcheck pinging core payment api
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-  CMD wget -qO- http://localhost:6100/health || exit 1
+  CMD wget -qO- http://127.0.0.1:6100/health || exit 1
 
 CMD ["node", "scripts/start.js"]
