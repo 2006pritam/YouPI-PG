@@ -1577,6 +1577,21 @@ export function registerCheckoutRoutes(server, ctx) {
     const sourceSession = (conflictingSessionId ? ctx.sessionRepo.findById(conflictingSessionId) : null) || targetSession;
     const customerId = body?.customerId || sourceSession?.customerId || targetSession.customerId || null;
 
+    // A settled order must not be restarted. The restarted session deliberately reuses the
+    // merchant's order reference, and the unique (merchant_id, order_id) index rejects a
+    // second row for an order that already succeeded — which surfaced as a 500. Refuse with a
+    // clear conflict instead of attempting the duplicate.
+    const paidSession = [sourceSession, targetSession].find(s => s && s.status === PaymentStatus.SUCCESS);
+    if (paidSession) {
+      HttpServer.json(res, 409, {
+        error: 'ORDER_ALREADY_PAID',
+        message: 'This order has already been paid and cannot be restarted.',
+        orderId: paidSession.orderId,
+        status: PaymentStatus.SUCCESS
+      });
+      return;
+    }
+
     // 1. Identify ALL sessions on old/other devices that must be cancelled
     const sessionsToTerminate = new Map();
 

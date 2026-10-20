@@ -229,7 +229,11 @@ export class WebhookEngine {
       }
 
       const timestamp = Date.now().toString();
-      const signature = generateHmac(`${timestamp}.${item.payload}`, merchant.webhookSecret);
+      // The signature must cover exactly the transmitted body, using the same formula as
+      // dispatch(). Signing `${timestamp}.${payload}` here meant a retried delivery carried a
+      // different MAC than the first attempt, so the merchant's verification (HMAC over the
+      // raw body, per the documented contract) rejected every retry.
+      const signature = generateHmac(item.payload, merchant.webhookSecret);
 
       let isSuccess = false;
       let respStatus = null;
