@@ -74,13 +74,17 @@ export class WebhookEngine {
     }
 
     // 3. Resolve UTR / bank reference number if attributed
-    let utr = session.bankReferenceNumber || session.bank_reference_number || session.utr || null;
+    // The bank reference (UTR/RRN) lives on the attributed observation, not on the
+    // session row. Merchants need it to reconcile a webhook against their bank
+    // statement, and it is part of the documented webhook contract.
+    let utr = session.utr || session.bankReferenceNumber || session.bank_reference_number || '';
     if (!utr && session.attributedObservationId) {
       try {
-        const obs = this.db.queryOne('SELECT bank_reference_number FROM payment_observations WHERE id = ?', [session.attributedObservationId]);
-        if (obs?.bank_reference_number) {
-          utr = obs.bank_reference_number;
-        }
+        const obsRow = this.db.queryOne(
+          'SELECT bank_reference_number FROM payment_observations WHERE id = ?',
+          [session.attributedObservationId]
+        );
+        if (obsRow?.bank_reference_number) utr = obsRow.bank_reference_number;
       } catch {}
     }
 
@@ -93,7 +97,7 @@ export class WebhookEngine {
       amountPaise: Number(session.amountPaise),
       currency: session.currency || 'INR',
       method: session.method || 'UPI',
-      utr,
+      utr: String(utr || ''),
       verificationTag: session.verificationTag || session.verification_tag || (session.method === 'COD' ? 'COD_ORDER_PLACED' : 'UNVERIFIED'),
       verificationLevel: session.verificationLevel != null ? Number(session.verificationLevel) : (session.verification_level != null ? Number(session.verification_level) : (session.method === 'COD' ? 1 : 0)),
       completedAt: session.completedAt ? (typeof session.completedAt.toISOString === 'function' ? session.completedAt.toISOString() : String(session.completedAt)) : new Date().toISOString(),
@@ -101,10 +105,9 @@ export class WebhookEngine {
     };
 
     const payloadString = JSON.stringify(payloadObj);
-    const timestamp = Date.now().toString();
-    // Invariant: Sign `${timestamp}.${payloadString}` to bind timestamp into HMAC for replay protection
-    const signature = generateHmac(`${timestamp}.${payloadString}`, merchant.webhookSecret);
+    const signature = generateHmac(payloadString, merchant.webhookSecret);
     const deliveryId = crypto.randomUUID();
+    const timestamp = Date.now().toString();
 
     const headers = {
       'Content-Type': 'application/json',

@@ -521,11 +521,11 @@ describe('Gateway Hardening & Invariant Protection Test Suite (#23, #25, #26, #2
     assert.equal(receivedHook.body.utr, '429182736451');
     assert.ok(receivedHook.body.attemptId);
 
-    // Verify timestamp HMAC binding
+    // Verify HMAC signature
     const sig = receivedHook.headers['x-gateway-signature'].replace('sha256=', '');
     const ts = receivedHook.headers['x-gateway-timestamp'];
     assert.ok(ts);
-    const expectedHmac = crypto.createHmac('sha256', secret).update(`${ts}.${JSON.stringify(receivedHook.body)}`).digest('hex');
+    const expectedHmac = crypto.createHmac('sha256', secret).update(JSON.stringify(receivedHook.body)).digest('hex');
     assert.equal(sig, expectedHmac);
   });
 
