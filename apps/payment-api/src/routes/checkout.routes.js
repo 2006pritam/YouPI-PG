@@ -505,8 +505,17 @@ export function registerCheckoutRoutes(server, ctx) {
     const authHeader = req.headers['authorization'] || '';
     const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : (req.headers['x-customer-token'] || null);
 
+    // Customer PII is only disclosed to a party that is entitled to it:
+    //   - the owning merchant (admin/observer credential or X-Merchant-Key),
+    //   - the co-located checkout renderer,
+    //   - the customer themselves, presenting their own customer session token.
+    // An anonymous holder of a payment id must not receive name/email/phone.
+    const isOwnerCaller = isPaymentOwner(req, session, ctx) || isInternalServiceRequest(req);
+    const tokenAuth = (bearerToken && ctx.customerSessionRepo) ? ctx.customerSessionRepo.findByToken(bearerToken) : null;
+    const isSelfCaller = Boolean(tokenAuth?.customer && session.customerId && tokenAuth.customer.id === session.customerId);
+
     let customer = null;
-    if (session.customerId && ctx.customerRepo) {
+    if (session.customerId && ctx.customerRepo && (isOwnerCaller || isSelfCaller)) {
       const c = ctx.customerRepo.findById(session.customerId);
       if (c) {
         customer = {
@@ -518,20 +527,21 @@ export function registerCheckoutRoutes(server, ctx) {
           phoneNumber: c.mobileNumber
         };
       }
-    } else if (!customer && bearerToken && ctx.customerSessionRepo) {
-      const authContext = ctx.customerSessionRepo.findByToken(bearerToken);
-      if (authContext?.customer) {
-        const c = authContext.customer;
-        customer = {
-          id: c.id,
-          name: c.name,
-          email: c.email,
-          mobileNumber: c.mobileNumber,
-          fullName: c.name,
-          phoneNumber: c.mobileNumber
-        };
-      }
+    } else if (!customer && tokenAuth?.customer) {
+      const c = tokenAuth.customer;
+      customer = {
+        id: c.id,
+        name: c.name,
+        email: c.email,
+        mobileNumber: c.mobileNumber,
+        fullName: c.name,
+        phoneNumber: c.mobileNumber
+      };
     }
+
+    // Merchant metadata is merchant-private: only the owner (or the internal renderer)
+    // may read it. The cancellation reason is exposed separately for the customer UI.
+    const publicMetadata = isOwnerCaller ? (session.metadata || {}) : {};
 
     // Single active payment session check (Section 1 & 2)
     const requestingDeviceId = req.headers['x-device-id'] || session.deviceId || null;
@@ -602,7 +612,7 @@ export function registerCheckoutRoutes(server, ctx) {
       status: session.status,
       reason: session.metadata?.cancelledReason || null,
       cancelledReason: session.metadata?.cancelledReason || null,
-      metadata: session.metadata || {},
+      metadata: publicMetadata,
       method: session.method,
       verificationLevel: session.verificationLevel || 0,
       verificationSources: session.verificationSources || [],

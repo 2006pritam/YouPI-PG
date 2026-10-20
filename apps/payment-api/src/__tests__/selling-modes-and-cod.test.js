@@ -1,7 +1,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { Database } from '@youpi/db';
+import { Database, MerchantRepository } from '@youpi/db';
 import { startServer as startPaymentApi } from '../index.js';
 import { PaymentStatus, PaymentMethod, SellingMode } from '@youpi/common';
 import { authHeaders, authHeadersFor } from '../../../../scripts/test-support.js';
@@ -10,11 +10,13 @@ describe('Architectural Update: Selling Modes (Online vs Offline), COD Flow, & C
   let apiInstance;
   let baseUrl;
   let testDb;
+  let merchantSecret;
 
   before(async () => {
     testDb = new Database({ inMemory: true });
     apiInstance = await startPaymentApi(6195, testDb);
     baseUrl = `http://localhost:${apiInstance.port}`;
+    merchantSecret = new MerchantRepository(testDb).findAll()[0].webhookSecret;
   });
 
   after(async () => {
@@ -292,5 +294,65 @@ describe('Architectural Update: Selling Modes (Online vs Offline), COD Flow, & C
 
     const stateCardOff = await request(`/api/v1/checkout/${paymentId}/state`);
     assert.deepEqual(stateCardOff.body.enabledMethods, ['UPI', 'CASH_COUNTER']);
+  });
+
+  test('SECURITY: customer contact is not disclosed to anonymous callers of the COD routes', async () => {
+    const reg = await request('/api/v1/customer/register', {
+      method: 'POST',
+      body: { phoneNumber: '9111000099', fullName: 'COD PII Subject', email: 'codpii@example.com', password: 'Password123!' }
+    });
+    assert.equal(reg.status, 201);
+    const customerToken = reg.body.token;
+
+    const pay = await request('/api/v1/payments', {
+      method: 'POST',
+      body: { orderId: 'COD-PII-ORDER-1', amount: '55.00' }
+    });
+    const paymentId = pay.body.paymentId;
+
+    await request(`/api/v1/checkout/${paymentId}/bind-customer`, {
+      method: 'POST',
+      body: { customerId: reg.body.customerId }
+    });
+
+    // 1. Anonymous callers learn nothing about the customer.
+    for (const path of [
+      `/api/v1/payments/${paymentId}/cod`,
+      `/api/v1/orders/COD-PII-ORDER-1/cod`,
+      `/api/v1/checkout/${paymentId}/cod`
+    ]) {
+      const res = await request(path);
+      assert.equal(res.status, 200, path);
+      assert.equal(res.body.customer, null, `${path} leaked customer`);
+      assert.equal(res.body.metadata, undefined, `${path} leaked metadata`);
+    }
+
+    // 2. The checkout state endpoint must not expose the customer to an anonymous holder
+    //    of the payment id either.
+    const anonState = await request(`/api/v1/checkout/${paymentId}/state`);
+    assert.equal(anonState.status, 200);
+    assert.equal(anonState.body.customer, null, 'checkout state leaked customer');
+    assert.deepEqual(anonState.body.metadata, {}, 'checkout state leaked metadata');
+
+    // 3. The owning merchant does get the full view.
+    const ownerRes = await request(`/api/v1/payments/${paymentId}/cod`, {
+      headers: { 'X-Merchant-Key': merchantSecret }
+    });
+    assert.equal(ownerRes.status, 200);
+    assert.equal(ownerRes.body.customer.mobileNumber, '9111000099');
+
+    // 4. The customer themselves see their own profile.
+    const selfRes = await request(`/api/v1/checkout/${paymentId}/state`, {
+      headers: { 'x-customer-token': customerToken }
+    });
+    assert.equal(selfRes.status, 200);
+    assert.equal(selfRes.body.customer.mobileNumber, '9111000099');
+
+    // 5. A wrong merchant key is rejected like an anonymous caller.
+    const wrongKey = await request(`/api/v1/payments/${paymentId}/cod`, {
+      headers: { 'X-Merchant-Key': 'not-the-merchant-secret' }
+    });
+    assert.equal(wrongKey.status, 200);
+    assert.equal(wrongKey.body.customer, null);
   });
 });
