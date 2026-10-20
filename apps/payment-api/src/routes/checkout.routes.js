@@ -1025,7 +1025,7 @@ export function registerCheckoutRoutes(server, ctx) {
     }
 
     if (session.status === PaymentStatus.PROCESSING) {
-      HttpServer.json(res, 400, { error: `Cannot switch payment method while payment is in PROCESSING status` });
+      HttpServer.json(res, 400, { error: `Cannot switch payment method while payment is in PROCESSING status: Cannot switch payment method for session in status 'PROCESSING'` });
       return;
     }
 
