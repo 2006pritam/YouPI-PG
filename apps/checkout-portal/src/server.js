@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { generateQrSvg } from './qr.js';
+import { generateQrSvg } from '@youpi/core';
 import { getInternalServiceToken } from '@youpi/common';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -16,18 +16,91 @@ const BASE_SECURITY_HEADERS = Object.freeze({
   'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'self'; base-uri 'none'; form-action 'self'; object-src 'none'"
 });
 
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
 /**
  * Escapes a value for interpolation into HTML text or attribute context.
  * Order ids, merchant names and branding fields are attacker-influenced, so they must
  * never be injected raw into the checkout template.
  */
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+export function escapeHtml(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch]);
+}
+
+/**
+ * Escapes a value for interpolation into a JavaScript string literal.
+ * HTML escaping is useless inside <script>: the parser never decodes entities
+ * there, so `</script>` and a bare quote would break out of the literal.
+ */
+export function escapeJsString(value) {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026');
+}
+
+/**
+ * Serialises a value as JSON that is safe to embed in a <script> block.
+ * Only `<` matters for tag termination, but U+2028/U+2029 are literal line
+ * terminators in older JS parsers, so they are escaped too.
+ */
+export function serializeForScript(value) {
+  return JSON.stringify(value === undefined ? null : value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
+// Placeholders that land inside a <script> block rather than HTML markup.
+const SCRIPT_PLACEHOLDERS = new Set(['PAYMENT_ID', 'API_BASE_URL', 'AMOUNT']);
+
+/**
+ * The checkout page is designed to be embedded by merchant storefronts, so the
+ * framing allowlist has to be deployment specific. Deployments can pin it with
+ * CHECKOUT_FRAME_ANCESTORS (e.g. "https://shop.example.com"); the default stays
+ * permissive so existing integrations keep working.
+ */
+function resolveFrameAncestors() {
+  const configured = (process.env.CHECKOUT_FRAME_ANCESTORS || '').trim();
+  return configured || '*';
+}
+
+/**
+ * Security headers for the embeddable checkout pages. Built per response so the
+ * frame-ancestors allowlist can be pinned per deployment via CHECKOUT_FRAME_ANCESTORS.
+ */
+function checkoutFrameHeaders() {
+  return {
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Content-Security-Policy': `default-src 'self' data: blob:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors ${resolveFrameAncestors()}; base-uri 'none'; form-action 'self'; object-src 'none'`
+  };
+}
+
+/**
+ * Replaces {{PLACEHOLDER}} tokens in the checkout template.
+ *
+ * The replacement is done with a replacer function so that `$&`, `$'` and `` $` ``
+ * inside an attacker-controlled value are inserted literally instead of being
+ * expanded as replacement patterns.
+ */
+export function renderTemplate(template, values) {
+  return template.replace(/\{\{([A-Z0-9_]+)\}\}/g, (match, key) => {
+    if (!Object.prototype.hasOwnProperty.call(values, key)) return match;
+    const value = values[key];
+    return SCRIPT_PLACEHOLDERS.has(key) ? escapeJsString(value) : escapeHtml(value);
+  });
 }
 
 /**
@@ -97,12 +170,27 @@ export class CheckoutServer {
     }
   }
 
-  renderHtml(paymentId, state) {
+  loadTemplateWithPartials() {
     try {
-      this.template = fs.readFileSync(this.htmlTemplatePath, 'utf8');
-    } catch {}
+      let content = fs.readFileSync(this.htmlTemplatePath, 'utf8');
+      const partialsDir = path.resolve(__dirname, 'views', 'partials');
+      content = content.replace(/<!--\s*include:partials\/([a-zA-Z0-9_\-.]+)\s*-->/g, (match, filename) => {
+        try {
+          const partialPath = path.resolve(partialsDir, filename);
+          if (partialPath.startsWith(partialsDir) && fs.existsSync(partialPath)) {
+            return fs.readFileSync(partialPath, 'utf8');
+          }
+        } catch {}
+        return match;
+      });
+      return content;
+    } catch {
+      return this.template || '';
+    }
+  }
 
-    let html = this.template;
+  renderHtml(paymentId, state) {
+    let html = this.loadTemplateWithPartials();
 
     const appName = state?.branding?.appName || 'YouPI PG';
     const primaryColor = state?.branding?.primaryColor || '#0b63e5';
@@ -141,43 +229,35 @@ export class CheckoutServer {
     const downtimeAltBtnDisplay = ((sellingMode === 'ONLINE' && enabledMethods.includes('COD')) || (sellingMode === 'OFFLINE' && enabledMethods.includes('CASH_COUNTER'))) ? 'inline-block' : 'none';
     const downtimeAltBtnLabel = (sellingMode === 'ONLINE') ? 'Pay via Cash on Delivery Instead' : 'Pay by Cash at Till Instead';
 
-    // Everything interpolated below is derived from merchant-supplied or customer-supplied data
-    // (order ids, branding, payee names), so it is HTML-escaped. `{{INITIAL_STATE_JSON}}` is
-    // additionally guarded against `<` so it cannot terminate the inline script block.
-    html = html.replaceAll('{{PAYMENT_ID}}', escapeHtml(paymentId));
-    html = html.replaceAll('{{API_BASE_URL}}', clientApiBase);
-    html = html.replaceAll('{{APP_NAME}}', escapeHtml(appName));
-    html = html.replaceAll('{{PRIMARY_COLOR}}', escapeHtml(primaryColor));
-    html = html.replaceAll('{{MERCHANT_NAME}}', escapeHtml(merchantName));
-    html = html.replaceAll('{{ORDER_ID}}', escapeHtml(orderId));
-    html = html.replaceAll('{{AMOUNT}}', escapeHtml(state?.amount || '0.00'));
-    html = html.replaceAll('{{VPA}}', escapeHtml(vpa));
-    html = html.replaceAll('{{LOGO_URL}}', escapeHtml(logoUrl));
-    html = html.replaceAll('{{SIDEBAR_NOTICE}}', escapeHtml(sidebarNotice));
-    html = html.replaceAll('{{COUNTER_INSTRUCTIONS}}', escapeHtml(counterInstructions));
-    html = html.replaceAll('{{SERVER_HEALTH_CLASS}}', escapeHtml(healthClass));
-    html = html.replaceAll('{{SERVER_HEALTH_LABEL}}', escapeHtml(healthLabel));
-    html = html.replaceAll('{{DOWNTIME_ALERT_STYLE}}', escapeHtml(alertStyle));
-    html = html.replaceAll('{{DOWNTIME_ALERT_CLASS}}', escapeHtml(alertClass));
-    html = html.replaceAll('{{DOWNTIME_HEADING}}', escapeHtml(alertHeading));
-    html = html.replaceAll('{{DOWNTIME_MSG}}', escapeHtml(alertMsg));
-    html = html.replaceAll('{{METHOD_SELECTOR_DISPLAY}}', escapeHtml(showMethodBar));
-    html = html.replaceAll('{{TAB_COD_STYLE}}', escapeHtml(tabCodStyle));
-    html = html.replaceAll('{{TAB_CASH_STYLE}}', escapeHtml(tabCashStyle));
-    html = html.replaceAll('{{TAB_CARD_STYLE}}', escapeHtml(tabCardStyle));
-    html = html.replaceAll('{{PC_COD_STYLE}}', escapeHtml(pcCodStyle));
-    html = html.replaceAll('{{PC_CASH_STYLE}}', escapeHtml(pcCashStyle));
-    html = html.replaceAll('{{PC_CARD_STYLE}}', escapeHtml(pcCardStyle));
-    html = html.replaceAll('{{DOWNTIME_ALT_BTN_DISPLAY}}', escapeHtml(downtimeAltBtnDisplay));
-    html = html.replaceAll('{{DOWNTIME_ALT_BTN_LABEL}}', escapeHtml(downtimeAltBtnLabel));
-    html = html.replaceAll('{{INITIAL_STATE_JSON}}', JSON.stringify(state || {})
-      .replaceAll('<', '\\u003c')
-      .replaceAll('>', '\\u003e')
-      .replaceAll('&', '\\u0026')
-      .replaceAll('\u2028', '\\u2028')
-      .replaceAll('\u2029', '\\u2029'));
-
-    return html;
+    return renderTemplate(html, {
+      PAYMENT_ID: paymentId,
+      API_BASE_URL: clientApiBase,
+      APP_NAME: appName,
+      PRIMARY_COLOR: primaryColor,
+      MERCHANT_NAME: merchantName,
+      ORDER_ID: orderId,
+      AMOUNT: state?.amount || '0.00',
+      VPA: vpa,
+      LOGO_URL: logoUrl,
+      SIDEBAR_NOTICE: sidebarNotice,
+      COUNTER_INSTRUCTIONS: counterInstructions,
+      SERVER_HEALTH_CLASS: healthClass,
+      SERVER_HEALTH_LABEL: healthLabel,
+      DOWNTIME_ALERT_STYLE: alertStyle,
+      DOWNTIME_ALERT_CLASS: alertClass,
+      DOWNTIME_HEADING: alertHeading,
+      DOWNTIME_MSG: alertMsg,
+      METHOD_SELECTOR_DISPLAY: showMethodBar,
+      TAB_COD_STYLE: tabCodStyle,
+      TAB_CASH_STYLE: tabCashStyle,
+      TAB_CARD_STYLE: tabCardStyle,
+      PC_COD_STYLE: pcCodStyle,
+      PC_CASH_STYLE: pcCashStyle,
+      PC_CARD_STYLE: pcCardStyle,
+      DOWNTIME_ALT_BTN_DISPLAY: downtimeAltBtnDisplay,
+      DOWNTIME_ALT_BTN_LABEL: downtimeAltBtnLabel,
+      INITIAL_STATE_JSON: serializeForScript(state || {})
+    });
   }
 
   createServer() {
@@ -243,11 +323,14 @@ export class CheckoutServer {
         return;
       }
 
-      // Static icons: GET /icons/:filename
+      // Static icons: GET /icons/:filename with path traversal protection
       if (pathname.startsWith('/icons/')) {
         const iconName = path.basename(pathname);
-        const iconPath = path.join(__dirname, '..', 'public', 'icons', iconName);
-        if (fs.existsSync(iconPath)) {
+        const iconDir = path.resolve(__dirname, '..', 'public', 'icons');
+        const iconPath = path.resolve(iconDir, iconName);
+        const relative = path.relative(iconDir, iconPath);
+        const isSecure = relative && !relative.startsWith('..') && !path.isAbsolute(relative);
+        if (isSecure && fs.existsSync(iconPath)) {
           const ext = path.extname(iconName).toLowerCase();
           const contentType = ext === '.png' ? 'image/png' : ext === '.svg' ? 'image/svg+xml' : 'image/jpeg';
           res.writeHead(200, {
@@ -256,6 +339,28 @@ export class CheckoutServer {
             'Access-Control-Allow-Origin': '*'
           });
           fs.createReadStream(iconPath).pipe(res);
+          return;
+        }
+      }
+
+      // Static CSS & JS Asset Handler with Secure Path Traversal Prevention
+      if (pathname.startsWith('/css/') || pathname.startsWith('/js/')) {
+        const assetFolder = pathname.startsWith('/css/') ? 'css' : 'js';
+        const assetName = path.basename(pathname);
+        const assetDir = path.resolve(__dirname, '..', 'public', assetFolder);
+        const assetPath = path.resolve(assetDir, assetName);
+
+        const relative = path.relative(assetDir, assetPath);
+        const isSecure = relative && !relative.startsWith('..') && !path.isAbsolute(relative);
+
+        if (isSecure && fs.existsSync(assetPath)) {
+          const contentType = assetFolder === 'css' ? 'text/css; charset=utf-8' : 'application/javascript; charset=utf-8';
+          res.writeHead(200, {
+            'Content-Type': contentType,
+            'Cache-Control': 'public, max-age=86400',
+            'Access-Control-Allow-Origin': '*'
+          });
+          fs.createReadStream(assetPath).pipe(res);
           return;
         }
       }
@@ -274,7 +379,7 @@ export class CheckoutServer {
           'Pragma': 'no-cache',
           'Expires': '0',
           'Access-Control-Allow-Origin': '*',
-          ...BASE_SECURITY_HEADERS
+          ...checkoutFrameHeaders()
         });
         res.end(svg);
         return;
@@ -287,14 +392,14 @@ export class CheckoutServer {
         const state = await this.fetchPaymentState(paymentId);
 
         const rendered = this.renderHtml(paymentId, state);
-res.writeHead(200, {
-            'Content-Type': 'text/html; charset=utf-8',
-            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
-            'Pragma': 'no-cache',
-            'Expires': '0',
-            'Access-Control-Allow-Origin': '*',
-            ...BASE_SECURITY_HEADERS
-          });
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+          'Access-Control-Allow-Origin': '*',
+          ...checkoutFrameHeaders()
+        });
         res.end(rendered);
         return;
       }

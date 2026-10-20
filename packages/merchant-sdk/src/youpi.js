@@ -377,7 +377,7 @@
       backdrop.addEventListener('mouseup', stopOutsideDismiss, true);
     }
 
-    _isSafeRedirect(url) {
+_isSafeRedirect(url) {
       try {
         const u = new URL(url, window.location.href);
         return u.protocol === 'http:' || u.protocol === 'https:';
@@ -386,11 +386,27 @@
       }
     }
 
+    /**
+     * Origin of the checkout iframe this instance embeds. Messages from any
+     * other origin are ignored so a third party cannot forge payment events.
+     */
+    _checkoutOrigin() {
+      try {
+        // Only an explicitly configured checkout URL is authoritative. `portalUrl` defaults
+        // to localhost, so including it would make this check reject legitimate messages.
+        if (this.options.checkoutUrl) return new URL(this.options.checkoutUrl, window.location.href).origin;
+      } catch (e) { }
+      return null;
+    }
+
     _handleMessage(e) {
       // Ignore messages from any window other than our checkout iframe (spoofed success events).
       if (!this._iframe || e.source !== this._iframe.contentWindow) return;
       if (!this._iframeOrigin || e.origin !== this._iframeOrigin) return;
       if (!e.data || typeof e.data !== 'object') return;
+
+      const expectedOrigin = this._checkoutOrigin();
+      if (expectedOrigin && e.origin !== expectedOrigin) return;
 
       const event = e.data.event;
       const rawData = e.data.data || e.data;

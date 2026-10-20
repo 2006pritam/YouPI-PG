@@ -15,12 +15,17 @@ export const VALID_TRANSITIONS = Object.freeze({
     PaymentStatus.ACTIVE,
     PaymentStatus.QUEUED,
     PaymentStatus.CANCELLED,
-    PaymentStatus.EXPIRED
+    PaymentStatus.EXPIRED,
+    // COD: placing a Cash-on-Delivery order is a business success even before any UPI
+    // slot is acquired, so an order that was never activated still terminates as SUCCESS.
+    PaymentStatus.SUCCESS
   ],
   [PaymentStatus.QUEUED]: [
     PaymentStatus.ACTIVE,
     PaymentStatus.CANCELLED,
-    PaymentStatus.EXPIRED
+    PaymentStatus.EXPIRED,
+    // COD: a queued UPI order can be converted to a placed COD order.
+    PaymentStatus.SUCCESS
   ],
   [PaymentStatus.ACTIVE]: [
     PaymentStatus.PROCESSING,
