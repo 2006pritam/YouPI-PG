@@ -272,6 +272,13 @@ export class CheckoutServer {
         return;
       }
 
+      // Keep-alive ping for cron / uptime monitors
+      if (pathname === '/ping') {
+        res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
+        res.end('ok');
+        return;
+      }
+
       // Transparent API Proxy: /api/* -> Payment Core REST API
       if (pathname.startsWith('/api/')) {
         const targetPort = Number(process.env.PAYMENT_API_PORT || 6100);
