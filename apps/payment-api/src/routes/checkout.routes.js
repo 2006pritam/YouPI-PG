@@ -1,5 +1,5 @@
 import { HttpServer } from '../server.js';
-import { toRupeesString, buildUpiUri, PaymentStatus, PaymentMethod, UPI_PROVIDERS, isInternalServiceRequest } from '@youpi/common';
+import { toRupeesString, buildUpiUri, PaymentStatus, PaymentMethod, UPI_PROVIDERS, isInternalServiceRequest, isValidTransition } from '@youpi/common';
 import { validateSessionDeviceAccess } from '@youpi/core';
 
 /**
@@ -828,6 +828,11 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
+    if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
+      HttpServer.json(res, 400, { error: `Cannot retry payment for terminal session in status '${session.status}'` });
+      return;
+    }
+
     const customerId = session.customerId;
     const requestingDeviceId = req.headers['x-device-id'] || session.deviceId || null;
 
@@ -1019,7 +1024,12 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
-    if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED, PaymentStatus.PROCESSING].includes(session.status)) {
+    if (session.status === PaymentStatus.PROCESSING) {
+      HttpServer.json(res, 400, { error: `Cannot switch payment method while payment is in PROCESSING status` });
+      return;
+    }
+
+    if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
       HttpServer.json(res, 400, { error: `Cannot switch payment method for session in status '${session.status}'` });
       return;
     }
@@ -1235,9 +1245,21 @@ export function registerCheckoutRoutes(server, ctx) {
       return;
     }
 
-    // PROCESSING = a UPI payment was already detected and is being verified; switching it to COD would drop that payment.
-    if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED, PaymentStatus.PROCESSING].includes(session.status)) {
-      HttpServer.json(res, 400, { error: `Cannot place COD order for session in status '${session.status}'` });
+    // PROCESSING: a UPI payment was already detected and is being verified; switching it to COD would drop that payment.
+    if (session.status === PaymentStatus.PROCESSING) {
+      HttpServer.json(res, 400, { error: 'Cannot place COD order while payment is in PROCESSING status' });
+      return;
+    }
+
+    if ([PaymentStatus.SUCCESS, PaymentStatus.FAILED, PaymentStatus.EXPIRED, PaymentStatus.CANCELLED].includes(session.status)) {
+      HttpServer.json(res, 400, { error: `Cannot place COD order for terminal session in status '${session.status}'` });
+      return;
+    }
+
+    // COD terminates the session as SUCCESS; make sure the state machine permits that edge
+    // (INITIATED/QUEUED/ACTIVE are all legal; anything else is caught above).
+    if (!isValidTransition(session.status, PaymentStatus.SUCCESS)) {
+      HttpServer.json(res, 409, { error: `Cannot place COD order for session in status '${session.status}'.` });
       return;
     }
 
@@ -1262,30 +1284,34 @@ export function registerCheckoutRoutes(server, ctx) {
       }
     }
 
-    // Update payment session to SUCCESS with COD method and release slot
+    // Update payment session to SUCCESS with COD method and release slot inside transaction
     const nowIso = new Date().toISOString();
     const oldReceivingAccountId = session.receivingAccountId || session.receiving_account_id;
 
-    ctx.sessionRepo.db.execute(`
-      UPDATE payment_sessions
-      SET method = 'COD',
-          status = 'SUCCESS',
-          verification_tag = 'COD_ORDER_PLACED',
-          verification_level = 1,
-          completed_at = ?,
-          receiving_account_id = NULL,
-          updated_at = ?
-      WHERE id = ?
-    `, [nowIso, nowIso, session.id]);
-
-    // Release receiving account slot and promote next queued customer
-    if (oldReceivingAccountId) {
+    ctx.sessionRepo.db.transaction(() => {
       ctx.sessionRepo.db.execute(`
-        UPDATE payment_receiving_accounts
-        SET is_slot_busy = 0, current_active_session_id = NULL, updated_at = ?
-        WHERE id = ? AND current_active_session_id = ?
-      `, [nowIso, oldReceivingAccountId, session.id]);
+        UPDATE payment_sessions
+        SET method = 'COD',
+            status = 'SUCCESS',
+            verification_tag = 'COD_ORDER_PLACED',
+            verification_level = 1,
+            completed_at = ?,
+            receiving_account_id = NULL,
+            updated_at = ?
+        WHERE id = ? AND status IN ('INITIATED', 'QUEUED', 'ACTIVE')
+      `, [nowIso, nowIso, session.id]);
 
+      // Release receiving account slot
+      if (oldReceivingAccountId) {
+        ctx.sessionRepo.db.execute(`
+          UPDATE payment_receiving_accounts
+          SET is_slot_busy = 0, current_active_session_id = NULL, updated_at = ?
+          WHERE id = ? AND (current_active_session_id = ? OR current_active_session_id IS NULL)
+        `, [nowIso, oldReceivingAccountId, session.id]);
+      }
+    });
+
+    if (oldReceivingAccountId && ctx.queueEngine) {
       const promoted = ctx.queueEngine.promoteNext(oldReceivingAccountId);
       if (promoted) {
         if (promoted.expiresAt && ctx.timingEngine) {
