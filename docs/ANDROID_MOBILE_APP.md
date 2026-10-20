@@ -94,9 +94,29 @@ To ensure Android OEMs (Xiaomi MIUI, Samsung OneUI, OnePlus OxygenOS, Realme/Opp
 ### Step 4: Pair with Gateway
 1. Open your Merchant Admin (`http://localhost:6001`).
 2. Go to **Observers & Pairing** tab -> Click **+ Pair Android Device**.
-3. In the mobile app, enter the Gateway URL (e.g. `http://192.168.1.50:6100`) and the Enrollment Token.
+3. In the mobile app, enter the Gateway URL and the Enrollment Token.
+   - **Emulator (Android Studio):** `http://10.0.2.2:6100`
+   - **Physical device on the same LAN:** `https://<gateway-host>:6100` (see the cleartext note below)
+   - **Physical device via a tunnel:** `https://<your-public-host>`
 4. Tap **Pair with Merchant Gateway**.
 5. The status badge will change to **Status: CONNECTED (Active Observer)** with a green indicator.
+
+> **Cleartext HTTP is disabled by default.** The observer app now refuses plain `http://`
+> traffic app-wide (and no longer trusts user-installed CAs), so a bank-notification
+> client cannot be intercepted on an untrusted network. Cleartext is still permitted for
+> the loopback/emulator hosts `10.0.2.2`, `localhost` and `127.0.0.1`.
+>
+> If you must reach a gateway over plain HTTP on a private LAN address, add that exact
+> host to `apps/android-observer-app/app/src/main/res/xml/network_security_config.xml`:
+>
+> ```xml
+> <domain-config cleartextTrafficPermitted="true">
+>     <domain includeSubdomains="true">192.168.1.50</domain>
+> </domain-config>
+> ```
+>
+> The preferred fix is to terminate TLS in front of the gateway (a Cloudflare Tunnel or
+> a reverse proxy with a valid certificate) and pair over `https://`.
 
 ---
 

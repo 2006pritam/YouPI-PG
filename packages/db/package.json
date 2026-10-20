@@ -9,5 +9,8 @@
   },
   "dependencies": {
     "@youpi/common": "*"
+  },
+  "devDependencies": {
+    "@youpi/core": "*"
   }
 }
