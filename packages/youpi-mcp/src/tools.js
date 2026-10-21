@@ -153,7 +153,10 @@ export async function checkPortHealth(port, host = '127.0.0.1') {
         resolve({ port, online: false, error: err.code || 'CONNECTION_REFUSED' });
       });
       req.on('timeout', () => {
-        try { req.destroy(); req.socket?.destroy(); } catch (_) {}
+        try {
+          req.destroy(new Error('TIMEOUT'));
+          req.socket?.destroy();
+        } catch (_) {}
         resolve({ port, online: false, error: 'TIMEOUT' });
       });
       req.end();
