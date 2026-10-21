@@ -140,13 +140,17 @@ export function generateBankSmsText({ bank, amount, utr, accountLastDigits = '12
 export async function checkPortHealth(port, host = '127.0.0.1') {
   return new Promise((resolve) => {
     const req = http.request({ host, port, path: '/health', method: 'GET', timeout: 800 }, (res) => {
+      res.resume();
       resolve({ port, online: res.statusCode >= 200 && res.statusCode < 500, statusCode: res.statusCode });
     });
     req.on('error', (err) => {
-      req.destroy();
+      try { req.destroy(); } catch (_) {}
       resolve({ port, online: false, error: err.code || 'CONNECTION_REFUSED' });
     });
-    req.on('timeout', () => { req.destroy(); resolve({ port, online: false, error: 'TIMEOUT' }); });
+    req.on('timeout', () => {
+      try { req.destroy(); } catch (_) {}
+      resolve({ port, online: false, error: 'TIMEOUT' });
+    });
     req.end();
   });
 }
