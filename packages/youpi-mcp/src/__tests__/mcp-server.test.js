@@ -127,6 +127,27 @@ describe('YouPI MCP Server', () => {
     assert.equal(parsed.simulatedWebhookPayload.sender, 'VK-HDFCBK');
   });
 
+  test('executes youpi_check_gateway_health tool and returns services status matrix', async () => {
+    const server = new YoupiMcpServer();
+    const res = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 4,
+      method: 'tools/call',
+      params: {
+        name: 'youpi_check_gateway_health',
+        arguments: { host: '127.0.0.1' }
+      }
+    });
+
+    assert.equal(res.id, 4);
+    assert.ok(res.result.content[0].text);
+    const parsed = JSON.parse(res.result.content[0].text);
+    assert.equal(parsed.host, '127.0.0.1');
+    assert.ok(Array.isArray(parsed.services));
+    assert.equal(parsed.services.length, 6);
+    assert.ok(parsed.services.every((s) => typeof s.port === 'number' && typeof s.online === 'boolean'));
+  });
+
   test('returns error for unknown tool call', async () => {
     const server = new YoupiMcpServer();
     const res = await server.handleRequest({
