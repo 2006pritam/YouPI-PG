@@ -73,6 +73,17 @@ describe('YouPI MCP Server', () => {
     assert.equal(result.error, 'INVALID_SIGNATURE_FORMAT');
   });
 
+  test('rejects signature with mismatched length safely', async () => {
+    const result = verifyWebhookSignature({
+      rawPayload: '{"test":1}',
+      signature: 'sha256=aabbcc', // 3 bytes vs 32 bytes
+      secret: 'test-secret'
+    });
+
+    assert.equal(result.valid, false);
+    assert.equal(result.error, 'SIGNATURE_LENGTH_MISMATCH');
+  });
+
   test('rejects webhook timestamp beyond maxAgeSeconds', async () => {
     const secret = 'test-secret-12345';
     const payload = JSON.stringify({ event: 'SUCCESS' });

@@ -113,8 +113,12 @@ export function verifyWebhookSignature({ rawPayload, signature, secret, timestam
     return { valid: false, error: 'SIGNATURE_LENGTH_MISMATCH' };
   }
 
-  const matches = crypto.timingSafeEqual(bufA, bufB);
-  return { valid: matches, error: matches ? null : 'INVALID_SIGNATURE' };
+  try {
+    const matches = crypto.timingSafeEqual(bufA, bufB);
+    return { valid: matches, error: matches ? null : 'INVALID_SIGNATURE' };
+  } catch (_) {
+    return { valid: false, error: 'INVALID_SIGNATURE' };
+  }
 }
 
 export function generateBankSmsText({ bank, amount, utr, accountLastDigits = '1234' }) {
