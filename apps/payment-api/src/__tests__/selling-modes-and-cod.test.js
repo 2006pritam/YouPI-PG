@@ -330,7 +330,8 @@ describe('Architectural Update: Selling Modes (Online vs Offline), COD Flow, & C
         source: 'GOOGLE_MESSAGES',
         receivingAccountId: accountId,
         amount: '42.00',
-        utr: 'UTR-PAID-ORD-RESTART'
+        utr: 'UTR-PAID-ORD-RESTART',
+        rawText: 'A/C 1234 credited by Rs 42.00 via UPI/UTR-PAID-ORD-RESTART'
       }
     });
     await new Promise(r => setTimeout(r, 6500));

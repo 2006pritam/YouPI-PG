@@ -110,7 +110,9 @@ export function runMigrations(targetDb) {
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_devices_customer ON devices (customer_id);"); } catch {}
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_devices_fingerprint ON devices (fingerprint_hash);"); } catch {}
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_payment_sessions_device ON payment_sessions (device_id);"); } catch {}
+  try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_sessions_attributed_obs ON payment_sessions (attributed_observation_id) WHERE attributed_observation_id IS NOT NULL;"); } catch {}
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_observations_bank_ref ON payment_observations (bank_reference_number);"); } catch {}
+  try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_observations_unique_attributed_bank_ref ON payment_observations (bank_reference_number) WHERE bank_reference_number IS NOT NULL AND attributed_payment_id IS NOT NULL;"); } catch {}
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_observations_fingerprint ON payment_observations (fingerprint_hash);"); } catch {}
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_observations_attributed_payment ON payment_observations (attributed_payment_id);"); } catch {}
 

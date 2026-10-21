@@ -150,6 +150,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
         receivingAccountId: '00000000-0000-0000-0000-000000000002',
         amount: '200.00',
         utr: 'UTR-HTTP-999',
+        rawText: 'A/C 1234 credited by Rs 200.00 via UPI/UTR-HTTP-999',
         observedAt: new Date().toISOString()
       }
     });
@@ -548,6 +549,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
         receivingAccountId: '00000000-0000-0000-0000-000000000002',
         amount: '650.00',
         utr: 'UTR-TIER-001',
+        rawText: 'A/C 1234 credited by Rs 650.00 via UPI/UTR-TIER-001',
         observedAt: new Date().toISOString()
       }
     });
@@ -571,6 +573,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
         receivingAccountId: '00000000-0000-0000-0000-000000000002',
         amount: '650.00',
         utr: 'UTR-TIER-001',
+        rawText: 'Dear Customer, INR 650.00 credited to your account via UPI/UTR-TIER-001',
         observedAt: new Date().toISOString()
       }
     });
@@ -922,6 +925,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
           receivingAccountId: '00000000-0000-0000-0000-000000000002',
           amount: '320.00',
           utr: 'UTR-NOCLICK-999',
+          rawText: 'A/C 1234 credited by Rs 320.00 via UPI/UTR-NOCLICK-999',
           observedAt: new Date().toISOString()
         }
       });
@@ -953,6 +957,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
           receivingAccountId: '00000000-0000-0000-0000-000000000002',
           amount: '320.00',
           utr: 'UTR-NOCLICK-999',
+          rawText: 'Dear Customer, INR 320.00 credited to your account via UPI/UTR-NOCLICK-999',
           observedAt: new Date().toISOString()
         }
       });

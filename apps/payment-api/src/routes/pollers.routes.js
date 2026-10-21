@@ -78,6 +78,17 @@ export function registerPollerRoutes(server, ctx) {
     const rawText = body.rawText || body.text || body.message || body.sms || body.body || (typeof body.rawPayload === 'string' ? body.rawPayload : (body.rawPayload?.text || body.rawPayload?.body));
     const sender = body.sender || body.from || body.rawPayload?.sender || body.rawPayload?.from;
 
+    // Reject missing or blank observation rawText
+    if (!rawText || (typeof rawText === 'string' && !rawText.trim())) {
+      HttpServer.json(res, 400, {
+        accepted: false,
+        status: 'REJECTED',
+        reason: 'MISSING_RAW_TEXT',
+        error: 'Observation rawText is required for verification.'
+      });
+      return;
+    }
+
     // Bank notifications are small. Reject oversized bodies outright so no single observation
     // can be used to burn CPU or memory on the verification path.
     if (typeof rawText === 'string' && rawText.length > MAX_OBSERVATION_TEXT_CHARS) {
@@ -85,93 +96,65 @@ export function registerPollerRoutes(server, ctx) {
       return;
     }
 
-    if (ctx.pipeline && rawText) {
-      const pipeResult = ctx.pipeline.process({
-        source: body.source,
-        rawText,
-        sender,
-        receivingAccountId: body.receivingAccountId,
-        paymentSessionId: body.paymentSessionId,
-        bankReferenceNumber: body.bankReferenceNumber || body.utr,
-        // Test flags relax verification: honour them only for the admin credential, never for observers.
-        isTest: Boolean(body.isTest) && isAdminRequest(req),
-        testModeActive: Boolean(body.testModeActive) && isAdminRequest(req)
-      });
-
-      if (pipeResult.status === 'REJECTED' && pipeResult.failingCondition === 'FRAUDULENT_PAYMENT_INJECTION') {
-        HttpServer.json(res, 403, {
-          accepted: false,
-          status: 'REJECTED',
-          reason: 'FRAUDULENT_PAYMENT_INJECTION',
-          threatDetected: true,
-          banned: true,
-          error: 'FRAUDULENT_PAYMENT_INJECTION: Positive identification of fake payment message. Customer account banned and session terminated.'
-        });
-        return;
-      }
-
-      if (pipeResult.status === 'VERIFIED') {
-        HttpServer.json(res, 200, {
-          accepted: true,
-          observationId: pipeResult.messageId || pipeResult.stages?.stage6?.details?.observationId,
-          attribution: pipeResult.stages?.stage6?.details || pipeResult,
-          pipeline: pipeResult
-        });
-        return;
-      }
-
-      if (pipeResult.status === 'REJECTED') {
-        HttpServer.json(res, 400, {
-          accepted: false,
-          status: 'REJECTED',
-          reason: pipeResult.failingCondition,
-          error: pipeResult.failingReason || pipeResult.details,
-          pipeline: pipeResult
-        });
-        return;
-      }
+    if (!ctx.pipeline) {
+      HttpServer.json(res, 500, { error: 'Verification pipeline is not configured on this server.' });
+      return;
     }
 
-    try {
-      let amountPaise = body.amountPaise ? BigInt(body.amountPaise) : undefined;
-      let bankRef = body.bankReferenceNumber || body.utr;
-      let senderVpa = body.senderVpa;
-      const observedAt = body.observedAt ? new Date(body.observedAt) : new Date();
+    const pipeResult = ctx.pipeline.process({
+      source: body.source,
+      rawText,
+      sender,
+      receivingAccountId: body.receivingAccountId,
+      paymentSessionId: body.paymentSessionId,
+      bankReferenceNumber: body.bankReferenceNumber || body.utr,
+      // Test flags relax verification: honour them only for the admin credential, never for observers.
+      isTest: Boolean(body.isTest) && isAdminRequest(req),
+      testModeActive: Boolean(body.testModeActive) && isAdminRequest(req)
+    });
 
-      if (rawText && (!amountPaise || !bankRef)) {
-        const isEmail = body.source === 'GMAIL' || body.source === 'EMAIL';
-        const parsed = isEmail
-          ? BankEmailParser.parse({ subject: body.subject || body.rawPayload?.subject || '', body: rawText, date: observedAt, from: sender })
-          : BankSmsParser.parse({ text: rawText, sender, timestamp: observedAt });
-        if (parsed) {
-          if (!amountPaise) amountPaise = parsed.amountPaise;
-          if (!bankRef && parsed.bankReferenceNumber) bankRef = parsed.bankReferenceNumber;
-          if (!senderVpa && parsed.senderVpa) senderVpa = parsed.senderVpa;
-        }
-      }
-
-      const normalized = ObservationNormalizer.normalize({
-        source: body.source,
-        receivingAccountId: body.receivingAccountId,
-        rawPayload: body.rawPayload || body,
-        amountPaise,
-        amount: body.amount || (amountPaise ? (Number(amountPaise) / 100).toFixed(2) : undefined),
-        observedAt,
-        senderVpa,
-        bankReferenceNumber: bankRef
+    if (pipeResult.status === 'REJECTED' && pipeResult.failingCondition === 'FRAUDULENT_PAYMENT_INJECTION') {
+      HttpServer.json(res, 403, {
+        accepted: false,
+        status: 'REJECTED',
+        reason: 'FRAUDULENT_PAYMENT_INJECTION',
+        threatDetected: true,
+        banned: true,
+        error: 'FRAUDULENT_PAYMENT_INJECTION: Positive identification of fake payment message. Customer account banned and session terminated.'
       });
+      return;
+    }
 
-      const result = ctx.attributionEngine.processObservation(normalized);
-
+    if (pipeResult.status === 'VERIFIED') {
       HttpServer.json(res, 200, {
         accepted: true,
-        observationId: result.observationId,
-        attribution: result
+        observationId: pipeResult.messageId || pipeResult.stages?.stage6?.details?.observationId,
+        attribution: pipeResult.stages?.stage6?.details || pipeResult,
+        pipeline: pipeResult
       });
-    } catch (err) {
-      console.error('[Poller Ingest Error]:', err.message);
-      HttpServer.json(res, 400, { error: err.message });
+      return;
     }
+
+    if (pipeResult.status === 'REJECTED') {
+      HttpServer.json(res, 400, {
+        accepted: false,
+        status: 'REJECTED',
+        reason: pipeResult.failingCondition,
+        error: pipeResult.failingReason || pipeResult.details,
+        pipeline: pipeResult
+      });
+      return;
+    }
+
+    // Invert check: if status is not VERIFIED, return 4xx and NEVER fall through to direct attribution
+    HttpServer.json(res, 400, {
+      accepted: false,
+      status: pipeResult.status || 'UNRESOLVED',
+      reason: pipeResult.stages?.stage6?.outcomeStatus || pipeResult.failingCondition || 'UNRESOLVED_OBSERVATION',
+      observationId: pipeResult.messageId || pipeResult.stages?.stage6?.details?.observationId,
+      error: pipeResult.failingReason || 'Payment observation could not be verified or attributed.',
+      pipeline: pipeResult
+    });
   });
 
   // --- ANDROID SMS GATEWAY PAIRING HANDLER ---
@@ -335,6 +318,16 @@ export function registerPollerRoutes(server, ctx) {
 
     // Check for raw SMS text inside body or rawNotification
     const rawText = body.body || body.sms || body.rawSms || body.message || body.text || body.rawNotification?.text;
+    if (!rawText || (typeof rawText === 'string' && !rawText.trim())) {
+      HttpServer.json(res, 400, {
+        accepted: false,
+        status: 'REJECTED',
+        reason: 'MISSING_RAW_TEXT',
+        error: 'Observation rawText is required for verification.'
+      });
+      return;
+    }
+
     if (rawText && (!amountPaise || !bankRef)) {
       const parsedSms = BankSmsParser.parse({
         text: rawText,
@@ -356,58 +349,61 @@ export function registerPollerRoutes(server, ctx) {
     }
 
     // Evaluate through Security & Fraud Verification Pipeline for Android Ingest
-    if (ctx.pipeline && rawText) {
-      const pipeResult = ctx.pipeline.process({
-        source: 'SMS',
-        rawText,
-        sender: body.sender || req.headers['x-sender'] || body.rawNotification?.package,
-        receivingAccountId,
-        paymentSessionId: body.paymentSessionId,
-        bankReferenceNumber: bankRef,
-        isTest: false, // device-supplied flags must never relax verification
-        deviceInfo: device ? `${device.device_name} (${device.device_model})` : 'Android SMS Gateway'
+    if (!ctx.pipeline) {
+      HttpServer.json(res, 500, { error: 'Verification pipeline is not configured on this server.' });
+      return;
+    }
+
+    const pipeResult = ctx.pipeline.process({
+      source: 'SMS',
+      rawText,
+      sender: body.sender || req.headers['x-sender'] || body.rawNotification?.package,
+      receivingAccountId,
+      paymentSessionId: body.paymentSessionId,
+      bankReferenceNumber: bankRef,
+      isTest: false, // device-supplied flags must never relax verification
+      deviceInfo: device ? `${device.device_name} (${device.device_model})` : 'Android SMS Gateway'
+    });
+
+    if (pipeResult.status === 'REJECTED' && pipeResult.failingCondition === 'FRAUDULENT_PAYMENT_INJECTION') {
+      HttpServer.json(res, 403, {
+        accepted: false,
+        status: 'REJECTED',
+        reason: 'FRAUDULENT_PAYMENT_INJECTION',
+        threatDetected: true,
+        banned: true,
+        error: 'FRAUDULENT_PAYMENT_INJECTION: Fake SMS detected. Associated customer identity banned and session terminated.'
       });
+      return;
+    }
 
-      if (pipeResult.status === 'REJECTED' && pipeResult.failingCondition === 'FRAUDULENT_PAYMENT_INJECTION') {
-        HttpServer.json(res, 403, {
-          accepted: false,
-          status: 'REJECTED',
-          reason: 'FRAUDULENT_PAYMENT_INJECTION',
-          threatDetected: true,
-          banned: true,
-          error: 'FRAUDULENT_PAYMENT_INJECTION: Fake SMS detected. Associated customer identity banned and session terminated.'
-        });
-        return;
-      }
+    if (pipeResult.status === 'VERIFIED') {
+      ctx.db.execute("UPDATE android_devices SET last_observation_at = datetime('now') WHERE id = ?", [deviceId]);
+      HttpServer.json(res, 200, {
+        accepted: true,
+        observationId: pipeResult.messageId || pipeResult.stages?.stage6?.details?.observationId,
+        attribution: pipeResult.stages?.stage6?.details || pipeResult,
+        pipeline: pipeResult
+      });
+      return;
+    }
 
-      if (pipeResult.status === 'VERIFIED') {
-        ctx.db.execute("UPDATE android_devices SET last_observation_at = datetime('now') WHERE id = ?", [deviceId]);
-        HttpServer.json(res, 200, {
-          accepted: true,
-          observationId: pipeResult.messageId || pipeResult.stages?.stage6?.details?.observationId,
-          attribution: pipeResult.stages?.stage6?.details || pipeResult,
-          pipeline: pipeResult
-        });
-        return;
-      }
-
-      if (pipeResult.status === 'REJECTED') {
-        ctx.db.execute("UPDATE android_devices SET last_observation_at = datetime('now') WHERE id = ?", [deviceId]);
-        HttpServer.json(res, 400, {
-          accepted: false,
-          status: 'REJECTED',
-          reason: pipeResult.failingCondition,
-          error: pipeResult.failingReason || pipeResult.details,
-          pipeline: pipeResult
-        });
-        return;
-      }
+    if (pipeResult.status === 'REJECTED') {
+      ctx.db.execute("UPDATE android_devices SET last_observation_at = datetime('now') WHERE id = ?", [deviceId]);
+      HttpServer.json(res, 400, {
+        accepted: false,
+        status: 'REJECTED',
+        reason: pipeResult.failingCondition,
+        error: pipeResult.failingReason || pipeResult.details,
+        pipeline: pipeResult
+      });
+      return;
     }
 
     // Transport Only Contract (Part D): The Android observer forwards all raw SMS.
     // If no monetary amount is extracted (e.g. personal, promotional, non-bank SMS),
     // update observation timestamp on device and return 200 PROCESSED_NON_BANK.
-    if (!amountPaise) {
+    if (!amountPaise && pipeResult.status === 'UNRESOLVED') {
       ctx.db.execute("UPDATE android_devices SET last_observation_at = datetime('now') WHERE id = ?", [deviceId]);
       HttpServer.json(res, 200, {
         accepted: true,
@@ -418,32 +414,16 @@ export function registerPollerRoutes(server, ctx) {
       return;
     }
 
-    try {
-      const normalized = ObservationNormalizer.normalize({
-        source: 'ANDROID_OBSERVER', // Maps to Android SMS Observer source in system enums
-        receivingAccountId,
-        rawPayload: body,
-        amountPaise,
-        amount: body.amount || (Number(amountPaise) / 100).toFixed(2),
-        observedAt,
-        senderVpa,
-        bankReferenceNumber: bankRef
-      });
-
-      const result = ctx.attributionEngine.processObservation(normalized);
-
-      // Update device last observation timestamp
-      ctx.db.execute('UPDATE android_devices SET last_observation_at = datetime(\'now\') WHERE id = ?', [deviceId]);
-
-      HttpServer.json(res, 200, {
-        accepted: true,
-        observationId: result.observationId,
-        attribution: result
-      });
-    } catch (err) {
-      console.error('[Android SMS Ingest Error]:', err.message);
-      HttpServer.json(res, 400, { error: err.message });
-    }
+    // Invert check: if status is not VERIFIED, return 4xx and NEVER fall through to direct attribution
+    ctx.db.execute("UPDATE android_devices SET last_observation_at = datetime('now') WHERE id = ?", [deviceId]);
+    HttpServer.json(res, 400, {
+      accepted: false,
+      status: pipeResult.status || 'UNRESOLVED',
+      reason: pipeResult.stages?.stage6?.outcomeStatus || pipeResult.failingCondition || 'UNRESOLVED_OBSERVATION',
+      observationId: pipeResult.messageId || pipeResult.stages?.stage6?.details?.observationId,
+      error: pipeResult.failingReason || 'Payment observation could not be verified or attributed.',
+      pipeline: pipeResult
+    });
   };
 
   server.post('/api/v1/pollers/android/events', handleAndroidSmsEvents);
