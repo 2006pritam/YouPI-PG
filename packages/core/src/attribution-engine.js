@@ -137,13 +137,36 @@ export class AttributionEngine {
         }
 
         const savedObs = this.obsRepo.create(normalizedObs);
-        const verifyResult = this.sessionRepo.recordVerificationSource(
-          existing.attributedPaymentId,
-          normalizedObs.source,
-          savedObs.id,
-          { finalizeSuccess: true }
-        );
-        this.obsRepo.markAttributed(savedObs.id, existing.attributedPaymentId);
+        let verifyResult;
+        try {
+          verifyResult = this.sessionRepo.recordVerificationSource(
+            existing.attributedPaymentId,
+            normalizedObs.source,
+            savedObs.id,
+            { finalizeSuccess: true }
+          );
+          if (existing.bankReferenceNumber && savedObs.bankReferenceNumber && String(existing.bankReferenceNumber).trim() === String(savedObs.bankReferenceNumber).trim()) {
+            this.obsRepo.db.execute(`
+              UPDATE payment_observations
+              SET attribution_status = ?
+              WHERE id = ?
+            `, [ObservationAttributionStatus.ATTRIBUTED, savedObs.id]);
+          } else {
+            this.obsRepo.markAttributed(savedObs.id, existing.attributedPaymentId);
+          }
+        } catch (dbErr) {
+          const errMsg = dbErr?.message || '';
+          if (errMsg.includes('UNIQUE constraint failed') || errMsg.includes('duplicate key value') || errMsg.includes('idx_observations_unique_attributed_bank_ref') || errMsg.includes('idx_payment_sessions_attributed_obs')) {
+            return {
+              attributed: false,
+              duplicate: true,
+              lateMatch: false,
+              observationId: savedObs.id,
+              outcomeStatus: 'REFERENCE_ALREADY_USED'
+            };
+          }
+          throw dbErr;
+        }
 
         if (this.auditRepo) {
           this.auditRepo.log({
@@ -265,7 +288,7 @@ export class AttributionEngine {
           SELECT ps.id, ps.order_id
           FROM payment_sessions ps
           JOIN payment_observations po ON (ps.attributed_observation_id = po.id OR po.attributed_payment_id = ps.id)
-          WHERE ps.status = 'SUCCESS'
+          WHERE ps.status NOT IN ('FAILED', 'EXPIRED', 'CANCELLED')
             AND ps.id != ?
             AND po.bank_reference_number = ?
           LIMIT 1
@@ -330,13 +353,49 @@ export class AttributionEngine {
           this.pendingGraceTimers.delete(currentSession.id);
 
           // Second source confirmed within 5-second grace window -> LEVEL 2 DUAL VERIFICATION!
-          const verifyResult = this.sessionRepo.recordVerificationSource(
-            currentSession.id,
-            normalizedObs.source,
-            savedObs.id,
-            { finalizeSuccess: true }
-          );
-          this.obsRepo.markAttributed(savedObs.id, currentSession.id);
+          let verifyResult;
+          try {
+            verifyResult = this.sessionRepo.recordVerificationSource(
+              currentSession.id,
+              normalizedObs.source,
+              savedObs.id,
+              { finalizeSuccess: true }
+            );
+
+            // Check if primary observation already holds the attributed bank_reference_number
+            const primaryObs = currentSession.attributedObservationId
+              ? this.obsRepo.findById(currentSession.attributedObservationId)
+              : null;
+            const sameUtrAsPrimary = Boolean(
+              primaryObs &&
+              primaryObs.bankReferenceNumber &&
+              savedObs.bankReferenceNumber &&
+              String(primaryObs.bankReferenceNumber).trim() === String(savedObs.bankReferenceNumber).trim()
+            );
+
+            if (!sameUtrAsPrimary) {
+              this.obsRepo.markAttributed(savedObs.id, currentSession.id);
+            } else {
+              // Secondary dual-verification observation corroborates existing attributed UTR
+              this.obsRepo.db.execute(`
+                UPDATE payment_observations
+                SET attribution_status = ?
+                WHERE id = ?
+              `, [ObservationAttributionStatus.ATTRIBUTED, savedObs.id]);
+            }
+          } catch (dbErr) {
+            const errMsg = dbErr?.message || '';
+            if (errMsg.includes('UNIQUE constraint failed') || errMsg.includes('duplicate key value') || errMsg.includes('idx_observations_unique_attributed_bank_ref') || errMsg.includes('idx_payment_sessions_attributed_obs')) {
+              return {
+                attributed: false,
+                duplicate: true,
+                lateMatch: false,
+                observationId: savedObs.id,
+                outcomeStatus: 'REFERENCE_ALREADY_USED'
+              };
+            }
+            throw dbErr;
+          }
 
           if (this.auditRepo) {
             this.auditRepo.log({
@@ -390,14 +449,42 @@ export class AttributionEngine {
 
         // FIRST SOURCE CONFIRMATION:
         // Record Level 1 verification source without immediate finalization (start 5-second grace window)
-        const verifyResult = this.sessionRepo.recordVerificationSource(
-          currentSession.id,
-          normalizedObs.source,
-          savedObs.id,
-          { finalizeSuccess: false }
-        );
+        let verifyResult;
+        try {
+          verifyResult = this.sessionRepo.recordVerificationSource(
+            currentSession.id,
+            normalizedObs.source,
+            savedObs.id,
+            { finalizeSuccess: false }
+          );
 
-        this.obsRepo.markAttributed(savedObs.id, currentSession.id);
+          this.obsRepo.markAttributed(savedObs.id, currentSession.id);
+        } catch (dbErr) {
+          const errMsg = dbErr.message || '';
+          if (errMsg.includes('UNIQUE constraint failed') || errMsg.includes('duplicate key value') || errMsg.includes('idx_observations_unique_attributed_bank_ref') || errMsg.includes('idx_payment_sessions_attributed_obs')) {
+            if (this.auditRepo) {
+              this.auditRepo.log({
+                merchantId: currentSession.merchantId,
+                entityType: 'PAYMENT_SESSION',
+                entityId: currentSession.id,
+                action: 'REUSED_UTR_REJECTED',
+                actorType: 'SYSTEM',
+                details: {
+                  bankReferenceNumber: trimmedUtr,
+                  error: 'Concurrent UTR or observation attribution race prevented by database unique constraint.'
+                }
+              });
+            }
+            return {
+              attributed: false,
+              duplicate: true,
+              lateMatch: false,
+              observationId: savedObs.id,
+              outcomeStatus: 'REFERENCE_ALREADY_USED'
+            };
+          }
+          throw dbErr;
+        }
 
         if (this.auditRepo) {
           this.auditRepo.log({

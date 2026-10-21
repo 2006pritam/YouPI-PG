@@ -391,5 +391,157 @@ describe('Verification Pipeline & Fall-Through Protection (#22)', () => {
     assert.equal(updated.status, PaymentStatus.SUCCESS, 'Attributed PROCESSING session must recover to SUCCESS');
     assert.ok(successFired, 'PAYMENT.SUCCESS event must fire on recovery of attributed session');
   });
+
+  test('Issue #60: Missing rawText is rejected with HTTP 400 and does not bypass pipeline', async () => {
+    const sessionRepo = apiInstance.app.context.sessionRepo;
+    const receivingAccountId = '00000000-0000-0000-0000-000000000002';
+    const merchantId = '00000000-0000-0000-0000-000000000001';
+
+    testDb.execute("UPDATE payment_sessions SET status = 'EXPIRED' WHERE receiving_account_id = ? AND status IN ('ACTIVE', 'PROCESSING')", [receivingAccountId]);
+    testDb.execute('UPDATE payment_receiving_accounts SET is_slot_busy = 0, current_active_session_id = NULL WHERE id = ?', [receivingAccountId]);
+
+    const session = sessionRepo.create({
+      merchantId,
+      receivingAccountId,
+      orderId: 'MISSING-RAWTEXT-01',
+      amountPaise: 75000n
+    });
+    apiInstance.app.context.queueEngine.enqueueOrActivate(session.id, receivingAccountId);
+
+    // Caller attempts to bypass pipeline by sending amount and UTR without rawText
+    const res = await request('/api/v1/pollers/events', {
+      method: 'POST',
+      body: {
+        source: 'SMS',
+        sender: 'HDFCBK',
+        receivingAccountId,
+        amount: '750.00',
+        amountPaise: '75000',
+        bankReferenceNumber: '750750750750'
+      }
+    });
+
+    assert.equal(res.status, 400);
+    assert.equal(res.body.accepted, false);
+    assert.equal(res.body.status, 'REJECTED');
+    assert.equal(res.body.reason, 'MISSING_RAW_TEXT');
+
+    // Confirm session is NOT marked SUCCESS
+    const freshSession = sessionRepo.findById(session.id);
+    assert.equal(freshSession.status, PaymentStatus.ACTIVE);
+  });
+
+  test('Issue #60: UNRESOLVED pipeline result is rejected with HTTP 400 and never falls through to attribution', async () => {
+    const accountRepo = new ReceivingAccountRepository(testDb);
+    const merchantId = '00000000-0000-0000-0000-000000000001';
+
+    const unassignedAcc = accountRepo.create({
+      merchantId,
+      upiId: `unresolved-${crypto.randomUUID().slice(0, 8)}@okaxis`,
+      payeeName: 'Unresolved Holder',
+      provider: 'AXIS_BANK'
+    });
+
+    // Ingest observation for an account with no active or processing session -> Stage 4 returns UNRESOLVED
+    const res = await request('/api/v1/pollers/events', {
+      method: 'POST',
+      body: {
+        source: 'SMS',
+        sender: 'HDFCBK',
+        receivingAccountId: unassignedAcc.id,
+        amount: '999.00',
+        amountPaise: '99900',
+        bankReferenceNumber: '999111222333',
+        rawText: 'A/C 1234 credited with Rs 999.00 on 21-Oct-2026. Ref: 999111222333'
+      }
+    });
+
+    assert.equal(res.status, 400);
+    assert.equal(res.body.accepted, false);
+    assert.equal(res.body.status, 'UNRESOLVED');
+  });
+
+  test('Issue #60: Concurrent requests with identical UTR are rejected and prevent double-attribution', async () => {
+    const sessionRepo = apiInstance.app.context.sessionRepo;
+    const accountRepo = new ReceivingAccountRepository(testDb);
+    const merchantId = '00000000-0000-0000-0000-000000000001';
+
+    // Account A and Account B
+    const recAcc1 = accountRepo.create({
+      merchantId,
+      upiId: `race1-${crypto.randomUUID().slice(0, 8)}@okaxis`,
+      payeeName: 'Race Holder 1',
+      provider: 'AXIS_BANK'
+    });
+    const recAcc2 = accountRepo.create({
+      merchantId,
+      upiId: `race2-${crypto.randomUUID().slice(0, 8)}@okaxis`,
+      payeeName: 'Race Holder 2',
+      provider: 'AXIS_BANK'
+    });
+
+    const s1 = sessionRepo.create({
+      merchantId,
+      receivingAccountId: recAcc1.id,
+      orderId: `RACE-ORD-1-${Date.now()}`,
+      amountPaise: 88800n
+    });
+    apiInstance.app.context.queueEngine.enqueueOrActivate(s1.id, recAcc1.id);
+
+    const s2 = sessionRepo.create({
+      merchantId,
+      receivingAccountId: recAcc2.id,
+      orderId: `RACE-ORD-2-${Date.now()}`,
+      amountPaise: 88800n
+    });
+    apiInstance.app.context.queueEngine.enqueueOrActivate(s2.id, recAcc2.id);
+
+    const sharedUtr = `RACEUTR${Date.now()}`.slice(0, 12).padEnd(12, '0');
+
+    // Fire two requests concurrently with the same UTR
+    const [res1, res2] = await Promise.all([
+      request('/api/v1/pollers/events', {
+        method: 'POST',
+        body: {
+          source: 'SMS',
+          sender: 'HDFCBK',
+          receivingAccountId: recAcc1.id,
+          amount: '888.00',
+          amountPaise: '88800',
+          bankReferenceNumber: sharedUtr,
+          rawText: `A/C 1234 credited with Rs 888.00 on 21-Oct-2026. Ref: ${sharedUtr}`
+        }
+      }),
+      request('/api/v1/pollers/events', {
+        method: 'POST',
+        body: {
+          source: 'SMS',
+          sender: 'HDFCBK',
+          receivingAccountId: recAcc2.id,
+          amount: '888.00',
+          amountPaise: '88800',
+          bankReferenceNumber: sharedUtr,
+          rawText: `A/C 5678 credited with Rs 888.00 on 21-Oct-2026. Ref: ${sharedUtr}`
+        }
+      })
+    ]);
+
+    const statuses = [res1.status, res2.status].sort();
+    assert.deepEqual(statuses, [200, 400], 'Exactly one request must succeed and the other must be rejected');
+
+    const successRes = res1.status === 200 ? res1 : res2;
+    const failedRes = res1.status === 400 ? res1 : res2;
+
+    assert.equal(successRes.body.accepted, true);
+    assert.equal(failedRes.body.accepted, false);
+    assert.equal(failedRes.body.status, 'REJECTED');
+    assert.equal(failedRes.body.reason, 'REFERENCE_ALREADY_USED');
+
+    // Verify exactly one session is SUCCESS and one is ACTIVE
+    const s1Fresh = sessionRepo.findById(s1.id);
+    const s2Fresh = sessionRepo.findById(s2.id);
+    const sessionStatuses = [s1Fresh.status, s2Fresh.status].sort();
+    assert.deepEqual(sessionStatuses, [PaymentStatus.ACTIVE, PaymentStatus.SUCCESS]);
+  });
 });
 
