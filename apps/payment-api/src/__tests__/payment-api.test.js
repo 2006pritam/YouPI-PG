@@ -368,7 +368,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
     // 3. Bind customer to payment session
     const bindRes = await request(`/api/v1/checkout/${paymentId}/bind-customer`, {
       method: 'POST',
-      body: { customerId }
+      body: { customerId, token: regRes.body.token }
     });
     assert.equal(bindRes.status, 200);
     assert.equal(bindRes.body.success, true);
@@ -445,7 +445,7 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
     // 4. User logs in and binds customer to payment session
     const bindRes = await request(`/api/v1/checkout/${paymentId}/bind-customer`, {
       method: 'POST',
-      body: { customerId }
+      body: { customerId, token: regRes.body.token }
     });
 
     assert.equal(bindRes.status, 200);

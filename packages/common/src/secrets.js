@@ -59,11 +59,115 @@ export const getCoinStoreWebhookSecret = () => resolveSecret('coin_store_webhook
  */
 export const getInternalServiceToken = () => resolveSecret('internal_service_token', 'INTERNAL_SERVICE_TOKEN');
 
-/** True only when the caller proves it is a trusted internal service. */
+/** True when a socket remoteAddress is loopback (IPv4 or IPv6). */
+function isLoopbackRemoteAddress(remoteAddress) {
+  if (!remoteAddress || typeof remoteAddress !== 'string') return true;
+  const addr = remoteAddress.trim().toLowerCase();
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+}
+
+/** True only when the caller proves it is a trusted co-located internal service. */
 export function isInternalServiceRequest(req) {
+  if (!isLoopbackRemoteAddress(req?.socket?.remoteAddress)) return false;
   const match = /^Bearer\s+(.+)$/i.exec(req?.headers?.['authorization'] || '');
   const presented = (match ? match[1].trim() : '') || (req?.headers?.['x-internal-token'] || '');
   return Boolean(presented) && safeEqual(presented, getInternalServiceToken());
+}
+
+/**
+ * Mints a server-signed device credential bound to a specific `deviceId`.
+ * Format: `devtok_<deviceId>.<nonce>.<issuedAt>.<hmac>`
+ * @param {string} deviceId
+ * @returns {string}
+ */
+export function issueDeviceCredential(deviceId) {
+  if (!deviceId || typeof deviceId !== 'string') {
+    throw new Error('deviceId is required to issue a device credential');
+  }
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const issuedAt = String(Date.now());
+  const mac = crypto
+    .createHmac('sha256', getInternalServiceToken())
+    .update(`devcred:v1:${deviceId}:${nonce}:${issuedAt}`)
+    .digest('hex');
+  return `devtok_${deviceId}.${nonce}.${issuedAt}.${mac}`;
+}
+
+/**
+ * Verifies in constant time that a presented `deviceToken` is a genuine server-signed
+ * credential issued for `deviceId`.
+ * @param {string} deviceId
+ * @param {string} token
+ * @returns {boolean}
+ */
+export function verifyDeviceCredential(deviceId, token) {
+  if (!deviceId || typeof deviceId !== 'string' || !token || typeof token !== 'string') {
+    return false;
+  }
+  const prefix = `devtok_${deviceId}.`;
+  if (!token.startsWith(prefix)) return false;
+  const rest = token.slice(prefix.length);
+  const parts = rest.split('.');
+  if (parts.length !== 3) return false;
+  const [nonce, issuedAt, presentedMac] = parts;
+  if (!nonce || !issuedAt || !presentedMac) return false;
+  const expectedMac = crypto
+    .createHmac('sha256', getInternalServiceToken())
+    .update(`devcred:v1:${deviceId}:${nonce}:${issuedAt}`)
+    .digest('hex');
+  return safeEqual(presentedMac, expectedMac);
+}
+
+const DEVICE_CHALLENGE_TTL_MS = 5 * 60 * 1000;
+const consumedDeviceChallenges = new Map();
+
+function deviceChallengeMac(deviceId, nonce, expiresAt) {
+  return crypto
+    .createHmac('sha256', getInternalServiceToken())
+    .update(`devchal:v1:${deviceId}:${nonce}:${expiresAt}`)
+    .digest('hex');
+}
+
+/**
+ * Mints a short-lived, single-use challenge bound to a registered `deviceId` for
+ * challenge-response token re-issuance.
+ * @param {string} deviceId
+ * @returns {string}
+ */
+export function createDeviceChallenge(deviceId) {
+  if (!deviceId || typeof deviceId !== 'string') {
+    throw new Error('deviceId is required to create a device challenge');
+  }
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const expiresAt = String(Date.now() + DEVICE_CHALLENGE_TTL_MS);
+  const mac = deviceChallengeMac(deviceId, nonce, expiresAt);
+  return `devchal_${deviceId}.${nonce}.${expiresAt}.${mac}`;
+}
+
+/**
+ * Verifies and consumes a single-use device challenge bound to `deviceId`.
+ * @param {string} challenge
+ * @param {string} deviceId
+ * @returns {boolean}
+ */
+export function consumeDeviceChallenge(challenge, deviceId) {
+  if (typeof challenge !== 'string' || typeof deviceId !== 'string' || !deviceId) return false;
+  const prefix = `devchal_${deviceId}.`;
+  if (!challenge.startsWith(prefix)) return false;
+  const parts = challenge.slice(prefix.length).split('.');
+  if (parts.length !== 3) return false;
+  const [nonce, expiresAt, mac] = parts;
+  if (!nonce || !expiresAt || !mac) return false;
+  if (!safeEqual(mac, deviceChallengeMac(deviceId, nonce, expiresAt))) return false;
+  const now = Date.now();
+  if (!(Number(expiresAt) > now)) return false;
+  for (const [k, exp] of consumedDeviceChallenges) {
+    if (exp <= now) consumedDeviceChallenges.delete(k);
+  }
+  const key = `${deviceId}:${nonce}`;
+  if (consumedDeviceChallenges.has(key)) return false;
+  consumedDeviceChallenges.set(key, Number(expiresAt));
+  return true;
 }
 
 /** Literal that older builds seeded into databases; must never be trusted. */
