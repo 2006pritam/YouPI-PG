@@ -33,6 +33,19 @@
 
 ---
 
+## 1a. `returnUrl` requirements
+
+`POST /api/v1/payments` accepts a `returnUrl` that is echoed back to the customer's
+browser as a redirect target after the payment completes, so the gateway stores only
+**absolute** `http:` / `https:` URLs. A relative value, a `javascript:` URL or any other
+scheme is rejected with `400`.
+
+The official SDK resolves a relative `data-success-url` (for example `/success`) against
+the storefront's own origin before sending it, so relative storefront paths keep working
+without any change to merchant code. If you call the API directly, send an absolute URL.
+
+---
+
 ## 1b. Merchant API Authentication (`X-Merchant-Key`)
 
 Endpoints that expose merchant-private or customer-contact data require the caller to
