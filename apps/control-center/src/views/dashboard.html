@@ -256,6 +256,82 @@
 <script>
   let sse = null;
 
+  window.__youpiAdminAuth = (function () {
+    const KEY = 'youpi_admin_token';
+    const nativeFetch = window.fetch.bind(window);
+    let pending = null;
+
+    const read = () => { try { return sessionStorage.getItem(KEY) || ''; } catch (e) { return ''; } };
+    const write = (t) => { try { sessionStorage.setItem(KEY, t); } catch (e) {} };
+    const clear = () => { try { sessionStorage.removeItem(KEY); } catch (e) {} };
+
+    function isProtected(url) {
+      return /\/api\/services/.test(url);
+    }
+
+    function prompt(message) {
+      if (pending) return pending;
+      pending = new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(15,23,42,.85);display:flex;align-items:center;justify-content:center;padding:16px;font-family:system-ui,sans-serif';
+        const box = document.createElement('form');
+        box.style.cssText = 'background:#fff;color:#0f172a;border-radius:12px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.4)';
+        const title = document.createElement('h3');
+        title.textContent = 'Admin token required';
+        title.style.margin = '0 0 8px';
+        const hint = document.createElement('p');
+        hint.textContent = message || 'Enter the admin API token (ADMIN_API_TOKEN, or the contents of data/.secrets/admin_api_token on the server).';
+        hint.style.cssText = 'margin:0 0 12px;font-size:14px;color:#475569';
+        const input = document.createElement('input');
+        input.type = 'password';
+        input.autocomplete = 'off';
+        input.required = true;
+        input.style.cssText = 'width:100%;box-sizing:border-box;padding:10px;border:1px solid #cbd5e1;border-radius:8px;margin-bottom:12px';
+        const btn = document.createElement('button');
+        btn.type = 'submit';
+        btn.textContent = 'Unlock';
+        btn.style.cssText = 'width:100%;padding:10px;border:0;border-radius:8px;background:#0f766e;color:#fff;font-weight:600;cursor:pointer';
+        box.append(title, hint, input, btn);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+        input.focus();
+        box.addEventListener('submit', (ev) => {
+          ev.preventDefault();
+          write(input.value.trim());
+          overlay.remove();
+          pending = null;
+          resolve();
+        });
+      });
+      return pending;
+    }
+
+    async function authedFetch(input, init) {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (!isProtected(url)) return nativeFetch(input, init);
+      if (!read()) {
+        await prompt();
+        if (typeof connectLogsSse === 'function') connectLogsSse();
+      }
+      const attempt = () => {
+        const headers = new Headers((init && init.headers) || (input && input.headers) || {});
+        headers.set('Authorization', 'Bearer ' + read());
+        return nativeFetch(input, Object.assign({}, init, { headers }));
+      };
+      let res = await attempt();
+      if (res.status === 401) {
+        clear();
+        await prompt('That token was rejected. Enter the admin API token again.');
+        res = await attempt();
+        if (res.ok && typeof connectLogsSse === 'function') connectLogsSse();
+      }
+      return res;
+    }
+
+    window.fetch = authedFetch;
+    return { token: read, ensure: () => (read() ? Promise.resolve() : prompt()) };
+  })();
+
   const THEME_KEY = 'youpi-theme';
   const themeMQ = window.matchMedia('(prefers-color-scheme: dark)');
 
@@ -365,7 +441,9 @@
 
   function connectLogsSse() {
     if (sse) sse.close();
-    sse = new EventSource('/api/logs/stream');
+    const token = window.__youpiAdminAuth ? window.__youpiAdminAuth.token() : '';
+    if (!token) return;
+    sse = new EventSource(`/api/logs/stream?token=${encodeURIComponent(token)}`);
 
     sse.addEventListener('log', (e) => {
       try {
