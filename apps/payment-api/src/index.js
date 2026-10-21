@@ -285,8 +285,16 @@ export function createPaymentApp(customDb = null, options = {}) {
   if (queueSyncDaemon.unref) queueSyncDaemon.unref();
 
   // Continuous Recurring Webhook Retry Daemon (Sweeps and dispatches pending webhook deliveries every 5s)
+  //
+  // The tick is defensive: `retryPending()` is expected to return a promise,
+  // but a throw inside it — or a non-promise return — must not escape the
+  // interval callback, because an exception thrown from a timer callback is
+  // an unhandled error that can take the process down.
   const webhookRetryDaemon = setInterval(() => {
-    webhookEngine.retryPending().catch(() => {});
+    try {
+      const outcome = webhookEngine.retryPending();
+      if (outcome && typeof outcome.catch === 'function') outcome.catch(() => {});
+    } catch {}
   }, Number(process.env.WEBHOOK_RETRY_INTERVAL_MS || 5000));
 
   if (webhookRetryDaemon.unref) webhookRetryDaemon.unref();
