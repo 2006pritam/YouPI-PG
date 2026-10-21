@@ -148,11 +148,11 @@ export async function checkPortHealth(port, host = '127.0.0.1') {
       resolve({ port, online: res.statusCode >= 200 && res.statusCode < 500, statusCode: res.statusCode });
     });
     req.on('error', (err) => {
-      try { req.destroy(); } catch (_) {}
+      try { req.destroy(err); } catch (_) {}
       resolve({ port, online: false, error: err.code || 'CONNECTION_REFUSED' });
     });
     req.on('timeout', () => {
-      try { req.destroy(); } catch (_) {}
+      try { req.destroy(); req.socket?.destroy(); } catch (_) {}
       resolve({ port, online: false, error: 'TIMEOUT' });
     });
     req.end();
