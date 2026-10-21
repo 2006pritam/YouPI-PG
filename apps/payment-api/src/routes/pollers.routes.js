@@ -146,6 +146,51 @@ export function registerPollerRoutes(server, ctx) {
       return;
     }
 
+    // A credit that arrives after its session has ended still has to be reconciled: the
+    // pipeline verified the message but found no live session (stage 4). Hand it to the
+    // attribution engine's late-match path so a LATE_UNMATCHED support ticket is raised
+    // for the merchant instead of the payment being silently dropped.
+    //
+    // This is NOT a settlement route. It is only taken when the pipeline failed specifically
+    // at stage 4 (i.e. the filter and parser stages passed) and no live session exists for
+    // the account, and the engine's late path only flags the observation for manual review.
+    if (
+      pipeResult.failingStage === 4 &&
+      pipeResult.failingCondition === 'NO_ACTIVE_SESSION' &&
+      ctx.sessionRepo && ctx.attributionEngine
+    ) {
+      const liveSession = ctx.sessionRepo.findCurrentActiveOrProcessing(body.receivingAccountId);
+      if (!liveSession) {
+        try {
+          const lateResult = ctx.attributionEngine.processObservation({
+            source: body.source,
+            receivingAccountId: body.receivingAccountId,
+            amountPaise: pipeResult.amountPaise,
+            bankReferenceNumber: pipeResult.reference || body.utr || body.bankReferenceNumber,
+            observedAt: new Date(body.observedAt || Date.now()),
+            sender,
+            rawPayload: body.rawPayload || { text: rawText }
+          });
+          HttpServer.json(res, 200, {
+            accepted: false,
+            status: lateResult?.outcomeStatus || 'LATE_UNMATCHED',
+            reason: 'LATE_OBSERVATION_NO_ACTIVE_SESSION',
+            observationId: lateResult?.observationId || pipeResult.messageId,
+            error: 'Payment credit was received after the session ended and has been queued for manual reconciliation.',
+            pipeline: pipeResult
+          });
+        } catch (err) {
+          HttpServer.json(res, 400, {
+            accepted: false,
+            status: 'UNRESOLVED',
+            reason: pipeResult.failingCondition || 'UNRESOLVED_OBSERVATION',
+            error: 'Payment observation could not be verified or attributed.'
+          });
+        }
+        return;
+      }
+    }
+
     // Invert check: if status is not VERIFIED, return 4xx and NEVER fall through to direct attribution
     HttpServer.json(res, 400, {
       accepted: false,
