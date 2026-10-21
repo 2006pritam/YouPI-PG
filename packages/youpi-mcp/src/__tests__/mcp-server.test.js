@@ -62,6 +62,17 @@ describe('YouPI MCP Server', () => {
     assert.equal(result.error, 'INVALID_SIGNATURE');
   });
 
+  test('rejects malformed or non-hex webhook signature', async () => {
+    const result = verifyWebhookSignature({
+      rawPayload: '{"test":1}',
+      signature: 'sha256=not-a-valid-hex-signature!',
+      secret: 'test-secret'
+    });
+
+    assert.equal(result.valid, false);
+    assert.equal(result.error, 'INVALID_SIGNATURE_FORMAT');
+  });
+
   test('rejects webhook timestamp beyond maxAgeSeconds', async () => {
     const secret = 'test-secret-12345';
     const payload = JSON.stringify({ event: 'SUCCESS' });

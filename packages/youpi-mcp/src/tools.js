@@ -99,6 +99,9 @@ export function verifyWebhookSignature({ rawPayload, signature, secret, timestam
   }
 
   const sig = signature.startsWith('sha256=') ? signature.slice(7) : signature;
+  if (!/^[0-9a-fA-F]+$/.test(sig) || sig.length % 2 !== 0) {
+    return { valid: false, error: 'INVALID_SIGNATURE_FORMAT' };
+  }
   const hmac = crypto.createHmac('sha256', secret);
   hmac.update(rawPayload, 'utf8');
   const expected = hmac.digest('hex');
