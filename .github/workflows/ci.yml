@@ -44,7 +44,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Run pinned, checksum-verified Gitleaks OSS CLI to bypass org-license gate
+      # The gitleaks-action wrapper demands a paid GITLEAKS_LICENSE for organisation repos and
+      # never receives secrets on fork PRs. The open-source CLI needs neither, so run it directly
+      # (pinned version, checksum-verified) and pick up .gitleaks.toml from the repo root.
       - name: Run Gitleaks Security Scan
         env:
           GITLEAKS_VERSION: 8.30.1

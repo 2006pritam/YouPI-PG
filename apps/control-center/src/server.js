@@ -17,7 +17,7 @@ const BASE_SECURITY_HEADERS = Object.freeze({
 });
 
 /** Routes reachable without a credential (liveness probe and the dashboard shell). */
-const PUBLIC_PATHS = new Set(['/health', '/', '/dashboard']);
+const PUBLIC_PATHS = new Set(['/health', '/', '/dashboard', '/fonts/dm-sans.woff2', '/fonts/sora.woff2']);
 
 /** True when the caller presented the admin bearer token in constant time. */
 function hasAdminToken(req) {
@@ -190,6 +190,21 @@ export class ControlCenterServer {
           this.sseClients.delete(res);
         });
         return;
+      }
+
+      // Self-hosted UI fonts (CSP blocks third-party font CDNs)
+      const fontMatch = /^\/fonts\/(dm-sans|sora)\.woff2$/.exec(pathname);
+      if (fontMatch && method === 'GET') {
+        const fontPath = path.resolve(__dirname, '../public/fonts', `${fontMatch[1]}.woff2`);
+        if (fs.existsSync(fontPath)) {
+          res.writeHead(200, {
+            'Content-Type': 'font/woff2',
+            'Cache-Control': 'public, max-age=31536000, immutable',
+            'X-Content-Type-Options': 'nosniff'
+          });
+          fs.createReadStream(fontPath).pipe(res);
+          return;
+        }
       }
 
       // Web Dashboard View: GET /
