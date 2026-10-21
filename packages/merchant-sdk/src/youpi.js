@@ -267,6 +267,16 @@
       const sep = targetUrl.includes('?') ? '&' : '?';
       targetUrl = `${targetUrl}${sep}embedded=1`;
 
+      // Declare this page's origin so the checkout can target its postMessages
+      // even when the browser strips the referrer. Opaque origins (file:) and
+      // non-http(s) schemes must not be announced.
+      try {
+        const parsed = new URL(window.location.href);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+          targetUrl += `&youpiParentOrigin=${encodeURIComponent(parsed.origin)}`;
+        }
+      } catch {}
+
       if (this.options.amount) {
         targetUrl += `&customAmount=${encodeURIComponent(this.options.amount)}`;
       }

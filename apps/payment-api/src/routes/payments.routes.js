@@ -58,6 +58,28 @@ export function registerPaymentRoutes(server, ctx) {
       return;
     }
 
+    // returnUrl is echoed back to the customer's browser as a redirect target after
+    // payment, so only absolute http(s) URLs are ever stored. This is the write-side
+    // complement to the checkout page's sanitizeRedirectUrl.
+    if (body.returnUrl !== undefined && body.returnUrl !== null && body.returnUrl !== '') {
+      if (typeof body.returnUrl !== 'string') {
+        HttpServer.json(res, 400, { error: 'returnUrl must be a string.' });
+        return;
+      }
+      let parsedReturnUrl;
+      try {
+        parsedReturnUrl = new URL(body.returnUrl.trim());
+      } catch {
+        HttpServer.json(res, 400, { error: 'returnUrl must be an absolute http(s) URL.' });
+        return;
+      }
+      if (parsedReturnUrl.protocol !== 'http:' && parsedReturnUrl.protocol !== 'https:') {
+        HttpServer.json(res, 400, { error: 'returnUrl must use the http or https scheme.' });
+        return;
+      }
+      body.returnUrl = parsedReturnUrl.href;
+    }
+
     const deviceId = body.deviceId || req.headers['x-device-id'] || null;
     if (deviceId && ctx.deviceRepo) {
       let dev = ctx.deviceRepo.findById(deviceId);
