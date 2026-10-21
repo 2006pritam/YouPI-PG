@@ -1,0 +1,27 @@
+name: Lint Workflows
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: Actionlint Workflow Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run actionlint
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
