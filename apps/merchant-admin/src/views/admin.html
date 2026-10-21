@@ -4821,8 +4821,8 @@
           </div>
         </div>
         <div style="display:flex; gap:0.5rem;">
-          <button class="btn btn-secondary" style="font-size:0.75rem;" onclick="copyText('${escapeHtml(r.hostname || '')}', 'Hostname copied to clipboard!')" ${!r.hostname ? 'disabled' : ''}>📋 Copy Hostname</button>
-          <button class="btn btn-secondary" style="font-size:0.75rem;" onclick="copyText('${escapeHtml(r.serviceUrl)}', 'Service URL copied to clipboard!')">📋 Copy Service URL</button>
+          <button class="btn btn-secondary" style="font-size:0.75rem;" onclick="copyText(${jsArg(r.hostname || '')}, 'Hostname copied to clipboard!')" ${!r.hostname ? 'disabled' : ''}>📋 Copy Hostname</button>
+          <button class="btn btn-secondary" style="font-size:0.75rem;" onclick="copyText(${jsArg(r.serviceUrl)}, 'Service URL copied to clipboard!')">📋 Copy Service URL</button>
         </div>
       </div>
     `).join('');
@@ -6767,7 +6767,7 @@
           <td style="text-align:right;">
             <div style="display:inline-flex; gap:0.4rem;">
               <button class="btn btn-secondary" style="padding:0.3rem 0.6rem; font-size:0.75rem;" onclick="viewBanDetails(${jsArg(u.id)})">🔍 Details</button>
-              <button class="btn btn-success" style="padding:0.3rem 0.6rem; font-size:0.75rem; background:#059669; border-color:#059669;" onclick="promptUnbanCustomer('${u.id}', '${escapeHtml(u.name || '')}', '${escapeHtml(u.phone || u.mobileNumber || '')}')">🔓 Unban</button>
+              <button class="btn btn-success" style="padding:0.3rem 0.6rem; font-size:0.75rem; background:#059669; border-color:#059669;" onclick="promptUnbanCustomer(${jsArg(u.id)}, ${jsArg(u.name || '')}, ${jsArg(u.phone || u.mobileNumber || '')})">🔓 Unban</button>
             </div>
           </td>
         </tr>

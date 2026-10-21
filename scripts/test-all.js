@@ -13,6 +13,7 @@ const testFiles = [
   'packages/merchant-sdk/src/__tests__/youpi-universal-integration.test.js',
   'apps/checkout-portal/src/__tests__/checkout-portal.test.js',
   'apps/checkout-portal/src/__tests__/checkout-xss.test.js',
+  'apps/checkout-portal/src/__tests__/issue-64-hardening.test.js',
   'apps/coin-wallet-store/src/__tests__/coin-wallet-store.test.js',
   'apps/merchant-admin/src/__tests__/merchant-admin.test.js',
   'apps/payment-help/src/__tests__/payment-help.test.js',
