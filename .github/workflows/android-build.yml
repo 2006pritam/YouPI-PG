@@ -48,7 +48,7 @@ jobs:
         run: npm ci
 
       - name: Compile Certified Android APK
-        run: npm run build:android
+        run: npm run build:android:apk
 
       - name: Verify Android Observer Tests
         run: node --test apps/android-observer-app/__tests__/android-observer.test.js
