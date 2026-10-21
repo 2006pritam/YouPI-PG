@@ -6,10 +6,13 @@ export class QueueEngine {
    *   sessionRepo: import('@youpi/db').PaymentSessionRepository,
    *   accountRepo: import('@youpi/db').ReceivingAccountRepository,
    *   eventEmitter?: { emit: (event: string, payload: any) => void },
-   *   auditRepo?: import('@youpi/db').AuditLogRepository
+   *   auditRepo?: import('@youpi/db').AuditLogRepository,
+   *   activeDurationMs?: number
    * }} options
    */
   constructor(options) {
+    // Payment window used whenever a caller does not pass one (PAYMENT_ACTIVE_WINDOW_MS).
+    this.activeDurationMs = options.activeDurationMs || 300000;
     this.sessionRepo = options.sessionRepo;
     this.accountRepo = options.accountRepo;
     this.eventEmitter = options.eventEmitter || { emit: () => {} };
@@ -20,10 +23,10 @@ export class QueueEngine {
    * Attempts to acquire an active slot or places the session into the queue.
    * @param {string} sessionId
    * @param {string} receivingAccountId
-   * @param {number} [activeDurationMs=300000]
+   * @param {number} [activeDurationMs] Defaults to the engine's configured payment window
    * @returns {{ status: string, queuePosition: number, expiresAt: Date | null }}
    */
-  enqueueOrActivate(sessionId, receivingAccountId, activeDurationMs = 300000) {
+  enqueueOrActivate(sessionId, receivingAccountId, activeDurationMs = this.activeDurationMs) {
     const result = this.sessionRepo.acquireSlotAtomic(sessionId, receivingAccountId, activeDurationMs);
 
     if (result.status === PaymentStatus.ACTIVE) {
@@ -66,10 +69,10 @@ export class QueueEngine {
   /**
    * Promotes the next queued session for a receiving account if the slot is free.
    * @param {string} receivingAccountId
-   * @param {number} [activeDurationMs=300000]
+   * @param {number} [activeDurationMs] Defaults to the engine's configured payment window
    * @returns {any | null} The newly activated session or null if queue is empty or slot is busy
    */
-  promoteNext(receivingAccountId, activeDurationMs = 300000) {
+  promoteNext(receivingAccountId, activeDurationMs = this.activeDurationMs) {
     // Check if slot is currently occupied
     const active = this.sessionRepo.findCurrentActiveOrProcessing(receivingAccountId);
     if (active) {
