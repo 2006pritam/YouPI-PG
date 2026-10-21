@@ -74,12 +74,28 @@ export function createPaymentApp(customDb = null, options = {}) {
 
   const eventEmitter = new EventEmitter();
 
+  // The active window and the processing window drive the slot expiry that is written to
+  // the database, so a malformed value must not reach it: a negative value would expire
+  // every session instantly and Infinity would throw a RangeError on toISOString().
+  const parseWindowMs = (raw, fallback, label) => {
+    if (raw === undefined || raw === null || String(raw).trim() === '') return fallback;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0 || value > 24 * 60 * 60 * 1000) {
+      console.warn(`[config] Ignoring invalid ${label}=${raw}; using ${fallback}ms.`);
+      return fallback;
+    }
+    return Math.floor(value);
+  };
+  const activeDurationMs = parseWindowMs(process.env.PAYMENT_ACTIVE_WINDOW_MS, 300000, 'PAYMENT_ACTIVE_WINDOW_MS');
+  const processingDurationMs = parseWindowMs(process.env.PAYMENT_PROCESSING_WINDOW_MS, 30000, 'PAYMENT_PROCESSING_WINDOW_MS');
+
   const queueEngine = new QueueEngine({
     sessionRepo,
     accountRepo,
     eventEmitter,
     auditRepo,
-    activeDurationMs: Number(process.env.PAYMENT_ACTIVE_WINDOW_MS || 300000)
+    activeDurationMs,
+    processingDurationMs
   });
 
   const timingEngine = new TimingEngine({
@@ -87,8 +103,8 @@ export function createPaymentApp(customDb = null, options = {}) {
     queueEngine,
     eventEmitter,
     auditRepo,
-    activeDurationMs: Number(process.env.PAYMENT_ACTIVE_WINDOW_MS || 300000),
-    processingDurationMs: Number(process.env.PAYMENT_PROCESSING_WINDOW_MS || 30000)
+    activeDurationMs,
+    processingDurationMs
   });
 
   const attributionEngine = new AttributionEngine({

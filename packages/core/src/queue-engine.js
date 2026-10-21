@@ -13,6 +13,8 @@ export class QueueEngine {
   constructor(options) {
     // Payment window used whenever a caller does not pass one (PAYMENT_ACTIVE_WINDOW_MS).
     this.activeDurationMs = options.activeDurationMs || 300000;
+    // Verification window for a session that reached PROCESSING (PAYMENT_PROCESSING_WINDOW_MS).
+    this.processingDurationMs = options.processingDurationMs || 30000;
     this.sessionRepo = options.sessionRepo;
     this.accountRepo = options.accountRepo;
     this.eventEmitter = options.eventEmitter || { emit: () => {} };
@@ -141,8 +143,9 @@ export class QueueEngine {
       }
     }
 
-    // Average per queued cycle: 5-minute active window + 30-sec processing window
-    const CYCLE_DURATION_SECONDS = 330;
+    // Average per queued cycle: the configured active window plus the processing window.
+    // Deriving it keeps the estimate correct when PAYMENT_ACTIVE_WINDOW_MS is changed.
+    const CYCLE_DURATION_SECONDS = Math.round((this.activeDurationMs + this.processingDurationMs) / 1000);
     const precedingQueuedWait = (queuePosition - 1) * CYCLE_DURATION_SECONDS;
 
     return currentSlotRemaining + precedingQueuedWait;
