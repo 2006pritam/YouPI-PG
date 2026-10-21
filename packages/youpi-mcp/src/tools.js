@@ -142,7 +142,10 @@ export async function checkPortHealth(port, host = '127.0.0.1') {
     const req = http.request({ host, port, path: '/health', method: 'GET', timeout: 800 }, (res) => {
       resolve({ port, online: res.statusCode >= 200 && res.statusCode < 500, statusCode: res.statusCode });
     });
-    req.on('error', () => resolve({ port, online: false, error: 'CONNECTION_REFUSED' }));
+    req.on('error', (err) => {
+      req.destroy();
+      resolve({ port, online: false, error: err.code || 'CONNECTION_REFUSED' });
+    });
     req.on('timeout', () => { req.destroy(); resolve({ port, online: false, error: 'TIMEOUT' }); });
     req.end();
   });
