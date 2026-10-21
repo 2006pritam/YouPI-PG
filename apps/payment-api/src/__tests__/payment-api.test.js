@@ -1,16 +1,31 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import net from 'node:net';
 import { Database, MerchantRepository } from '@youpi/db';
 import { startServer } from '../index.js';
 import { PaymentStatus, ObserverSource, verifyHmac } from '@youpi/common';
 import { authHeadersFor, merchantHeaders } from '../../../../scripts/test-support.js';
+
+/** A port that is free right now, for a server that is started just for one test. */
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.unref();
+    probe.on('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
 
 describe('Payment API End-to-End HTTP Integration Tests', () => {
   let serverInstance;
   let baseUrl;
   let testDb;
   let merchantSecret;
+  let merchantWebhookUrl;
 
   before(async () => {
     testDb = new Database({ inMemory: true });
@@ -20,7 +35,9 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
     // Merchant-private fields on GET /payments/:id are only returned to the owning
     // merchant, so read the seeded secret through the repository (the raw column is
     // encrypted at rest).
-    merchantSecret = new MerchantRepository(testDb).findAll()[0].webhookSecret;
+    const seededMerchant = new MerchantRepository(testDb).findAll()[0];
+    merchantSecret = seededMerchant.webhookSecret;
+    merchantWebhookUrl = seededMerchant.webhookUrl;
   });
 
   after(async () => {
@@ -30,7 +47,8 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
 
   function request(path, options = {}) {
     return new Promise((resolve, reject) => {
-      const url = new URL(path, baseUrl);
+      // `options.baseUrl` lets a test talk to a second, isolated server.
+      const url = new URL(path, options.baseUrl || baseUrl);
       const reqOpts = {
         method: options.method || 'GET',
         headers: authHeadersFor(path, options.headers || {})
@@ -693,6 +711,147 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
       assert.equal(partialUpdate.body.webhookSecret, customSecret);
 
     } finally {
+      await new Promise(cb => mockReceiver.close(cb));
+    }
+  });
+
+  test('A delivery that failed is sent again by the retry daemon', async () => {
+    // The engine knows how to send a failed delivery again — it re-signs the
+    // stored payload and sends it with the same delivery id. But knowing how
+    // is not the same as doing it: the retry has to be *scheduled* by
+    // something, and until the daemon existed nothing scheduled it. A
+    // merchant whose server was restarting at the moment of the event simply
+    // never heard about the payment.
+    //
+    // This is the test for the daemon: the first delivery fails, the second
+    // one succeeds, and nothing but the daemon sends the second one.
+    //
+    // It runs on its own server, with its own database and a shortened daemon
+    // tick, so that the suite's shared server keeps the production default.
+    // A one-second tick on the shared server competes with the timing
+    // sensitive tests for the same event loop and the same SQLite connection.
+    const attempts = [];
+    let firstAttemptResolve;
+    const firstAttemptPromise = new Promise(resolve => { firstAttemptResolve = resolve; });
+
+    const mockReceiver = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        attempts.push({ headers: req.headers, body });
+        if (attempts.length === 1) {
+          // The merchant's server is not up yet.
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'not ready' }));
+          firstAttemptResolve();
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ received: true }));
+      });
+    });
+
+    await new Promise(resolve => mockReceiver.listen(0, resolve));
+    const receiverPort = mockReceiver.address().port;
+    const receiverUrl = `http://localhost:${receiverPort}/api/webhook`;
+    const customSecret = 'sec_wh_retry_test_key_9911';
+
+    const retryDb = new Database({ inMemory: true });
+    const previousInterval = process.env.WEBHOOK_RETRY_INTERVAL_MS;
+    // The daemon is created when the server starts, so the tick has to be set
+    // before startServer() — and put back afterwards.
+    process.env.WEBHOOK_RETRY_INTERVAL_MS = '1000';
+    let retryServer = null;
+
+    try {
+      const retryPort = await freePort();
+      retryServer = await startServer(retryPort, retryDb);
+      const retryBase = `http://localhost:${retryServer.port}`;
+
+      const updateRes = await request('/api/v1/admin/merchant-settings', {
+        method: 'POST',
+        body: { webhookUrl: receiverUrl, webhookSecret: customSecret },
+        baseUrl: retryBase
+      });
+      assert.equal(updateRes.status, 200);
+
+      const createRes = await request('/api/v1/payments', {
+        method: 'POST',
+        body: { orderId: 'WEBHOOK-RETRY-ORD-1', amount: '75.00', method: 'CASH_COUNTER' },
+        baseUrl: retryBase
+      });
+      assert.equal(createRes.status, 201);
+      const paymentId = createRes.body.paymentId;
+
+      const confirmRes = await request('/api/v1/admin/counter-confirm', {
+        method: 'POST',
+        body: { paymentId, operatorId: 'admin_wh_retry_tester' },
+        baseUrl: retryBase
+      });
+      assert.equal(confirmRes.status, 200);
+
+      // The first delivery reaches the receiver and is refused.
+      await Promise.race([
+        firstAttemptPromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('The first delivery never arrived')), 5000))
+      ]);
+      assert.equal(attempts.length, 1);
+
+      // The engine records the delivery once the response has come back, so
+      // the row is waited for rather than read once and called a failure.
+      let failedRow = null;
+      const rowDeadline = Date.now() + 5000;
+      while (Date.now() < rowDeadline) {
+        failedRow = retryDb.queryOne(
+          'SELECT id, attempt_count, is_successful, next_retry_at FROM webhook_deliveries WHERE payment_id = ?',
+          [paymentId]
+        );
+        if (failedRow) break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      assert.ok(failedRow, 'the failed delivery was not recorded');
+      assert.equal(failedRow.is_successful, 0);
+      assert.equal(failedRow.attempt_count, 1);
+      assert.ok(failedRow.next_retry_at, 'a failed delivery must be scheduled for a retry');
+
+      // Make it due now. The backoff is the engine's business, and waiting it
+      // out would make this test take half a minute for no extra confidence.
+      retryDb.execute(
+        'UPDATE webhook_deliveries SET next_retry_at = ? WHERE id = ?',
+        [new Date(Date.now() - 1000).toISOString(), failedRow.id]
+      );
+
+      // The daemon sends it again, on its own.
+      const retryDeadline = Date.now() + 10000;
+      while (Date.now() < retryDeadline && attempts.length < 2) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      assert.equal(attempts.length, 2, 'the failed delivery was never retried');
+
+      // The retry is the *same* delivery: same id, same signed payload.
+      assert.equal(attempts[1].headers['x-gateway-delivery-id'], attempts[0].headers['x-gateway-delivery-id']);
+      assert.equal(attempts[1].body, attempts[0].body);
+      assert.equal(
+        attempts[1].headers['x-gateway-signature'],
+        attempts[0].headers['x-gateway-signature'],
+        'the stored payload is re-signed, not re-built'
+      );
+
+      const settledRow = retryDb.queryOne(
+        'SELECT attempt_count, is_successful, response_status FROM webhook_deliveries WHERE id = ?',
+        [failedRow.id]
+      );
+      assert.equal(settledRow.attempt_count, 2);
+      assert.equal(settledRow.is_successful, 1);
+      assert.equal(settledRow.response_status, 200);
+    } finally {
+      if (retryServer) await retryServer.close();
+      retryDb.close();
+      if (previousInterval === undefined) {
+        delete process.env.WEBHOOK_RETRY_INTERVAL_MS;
+      } else {
+        process.env.WEBHOOK_RETRY_INTERVAL_MS = previousInterval;
+      }
       await new Promise(cb => mockReceiver.close(cb));
     }
   });
