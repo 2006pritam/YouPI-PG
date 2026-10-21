@@ -59,11 +59,32 @@ export const getCoinStoreWebhookSecret = () => resolveSecret('coin_store_webhook
  */
 export const getInternalServiceToken = () => resolveSecret('internal_service_token', 'INTERNAL_SERVICE_TOKEN');
 
+/**
+ * Key used to sign device credentials and device challenges.
+ *
+ * Deliberately separate from the internal service token: that token is transmitted by the
+ * checkout portal on every internal render, so sharing a key with it would mean a leaked
+ * internal token could be used to mint a valid device credential for any device id.
+ */
+export const getDeviceCredentialKey = () => resolveSecret('device_credential_key', 'DEVICE_CREDENTIAL_KEY');
+
+/**
+ * Key used to index high-entropy secrets for lookup (session tokens, device tokens).
+ * Separate from the internal service token so a leaked internal token cannot be used to
+ * compute stored indexes.
+ */
+export const getBlindIndexKey = () => resolveSecret('blind_index_key', 'BLIND_INDEX_KEY');
+
 /** True when a socket remoteAddress is loopback (IPv4 or IPv6). */
 function isLoopbackRemoteAddress(remoteAddress) {
-  if (!remoteAddress || typeof remoteAddress !== 'string') return true;
+  // Fail closed: an absent or malformed address is NOT loopback. Returning true here would
+  // let any request that hides its peer address satisfy the internal-service check.
+  if (!remoteAddress || typeof remoteAddress !== 'string') return false;
   const addr = remoteAddress.trim().toLowerCase();
-  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+  if (!addr) return false;
+  if (addr === '::1' || addr === '::ffff:127.0.0.1') return true;
+  // 127.0.0.0/8
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(addr);
 }
 
 /** True only when the caller proves it is a trusted co-located internal service. */
@@ -87,7 +108,7 @@ export function issueDeviceCredential(deviceId) {
   const nonce = crypto.randomBytes(16).toString('hex');
   const issuedAt = String(Date.now());
   const mac = crypto
-    .createHmac('sha256', getInternalServiceToken())
+    .createHmac('sha256', getDeviceCredentialKey())
     .update(`devcred:v1:${deviceId}:${nonce}:${issuedAt}`)
     .digest('hex');
   return `devtok_${deviceId}.${nonce}.${issuedAt}.${mac}`;
@@ -112,7 +133,7 @@ export function verifyDeviceCredential(deviceId, token) {
   const [nonce, issuedAt, presentedMac] = parts;
   if (!nonce || !issuedAt || !presentedMac) return false;
   const expectedMac = crypto
-    .createHmac('sha256', getInternalServiceToken())
+    .createHmac('sha256', getDeviceCredentialKey())
     .update(`devcred:v1:${deviceId}:${nonce}:${issuedAt}`)
     .digest('hex');
   return safeEqual(presentedMac, expectedMac);
@@ -123,7 +144,7 @@ const consumedDeviceChallenges = new Map();
 
 function deviceChallengeMac(deviceId, nonce, expiresAt) {
   return crypto
-    .createHmac('sha256', getInternalServiceToken())
+    .createHmac('sha256', getDeviceCredentialKey())
     .update(`devchal:v1:${deviceId}:${nonce}:${expiresAt}`)
     .digest('hex');
 }
@@ -215,10 +236,14 @@ export function decryptAtRest(stored) {
  * Keyed digest for high-entropy secrets that are only ever looked up, never read back
  * (session tokens, device tokens). Unlike a plain hash this is not brute-forceable from a
  * database dump, because the key lives outside the database.
+ *
+ * The key is dedicated to this purpose rather than shared with the internal service token:
+ * that token travels in a request header on every internal render, so a shared key would
+ * leak the indexing secret wherever those headers are logged.
  */
 export function blindIndex(value, namespace = 'token') {
   if (value === null || value === undefined || value === '') return null;
-  const digest = crypto.createHmac('sha256', getInternalServiceToken())
+  const digest = crypto.createHmac('sha256', getBlindIndexKey())
     .update(`${namespace}:${value}`)
     .digest('hex');
   return `${namespace}_v1_${digest}`;
@@ -226,11 +251,19 @@ export function blindIndex(value, namespace = 'token') {
 
 /**
  * Compares a presented secret against a stored blind index in constant time.
+ *
+ * Rows written before the key was separated were indexed with the internal service token,
+ * so that key is still accepted for existing rows; the row is re-indexed on first use.
  */
 export function blindIndexMatches(value, storedIndex, namespace = 'token') {
+  if (!value || !storedIndex) return false;
   const candidate = blindIndex(value, namespace);
-  if (!candidate || !storedIndex) return false;
-  return safeEqual(candidate, storedIndex);
+  if (candidate && safeEqual(candidate, storedIndex)) return true;
+  // Legacy index produced with the previous key.
+  const legacy = crypto.createHmac('sha256', getInternalServiceToken())
+    .update(`${namespace}:${value}`)
+    .digest('hex');
+  return safeEqual(`${namespace}_v1_${legacy}`, storedIndex);
 }
 
 /** True when the request's `Authorization: Bearer` value matches any of the given tokens. */
