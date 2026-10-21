@@ -16,7 +16,7 @@ public class PaymentNotificationListenerService extends NotificationListenerServ
     private static final String TAG = "YoupiNotifListener";
     private ApiClient apiClient;
 
-                // Generated from packages/common/src/upi-providers.js - Single Source of Truth
+    // Generated from packages/common/src/upi-providers.js - Single Source of Truth
     private static final Set<String> ALLOWED_BANKING_PACKAGES = new HashSet<>(Arrays.asList(
         "com.axis.mobile",
         "com.bankofbaroda.mconnect",

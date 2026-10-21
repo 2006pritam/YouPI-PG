@@ -32,7 +32,12 @@ export function syncAndroidAllowlist() {
 ${javaArrayLines}
     ));`;
 
-  const regex = /(?:\/\/[^\n]*\n\s*)?private static final Set<String> ALLOWED_BANKING_PACKAGES = new HashSet<\>\(Arrays\.asList\([\s\S]*?\)\);/;
+  // Anchored at the start of a line (with optional leading whitespace) so the generated
+  // comment is matched as a whole. The previous pattern could start mid-line, which made
+  // the replacement re-indent the block on every run: the script was not idempotent, the
+  // committed file stopped matching what the generator produced, and every build left the
+  // working tree dirty.
+  const regex = /^[ \t]*(?:\/\/[^\n]*\n[ \t]*)?private static final Set<String> ALLOWED_BANKING_PACKAGES = new HashSet<\>\(Arrays\.asList\([\s\S]*?\)\);/m;
   if (!regex.test(content)) {
     throw new Error('Could not match ALLOWED_BANKING_PACKAGES block in PaymentNotificationListenerService.java');
   }

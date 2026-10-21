@@ -263,7 +263,7 @@ export function registerPollerRoutes(server, ctx) {
   server.post('/api/v1/observers/sms/pair', handleAndroidPair);
 
   // --- ANDROID SMS GATEWAY OBSERVATION INGESTION ---
-  const handleAndroidSmsEvents = async (req, res) => {
+  const handleAndroidSmsEvents = async (req, res, { requirePackage = false } = {}) => {
     const rawBodyText = await new Promise(resolve => {
       let data = '';
       req.on('data', chunk => { data += chunk; });
@@ -332,9 +332,16 @@ export function registerPollerRoutes(server, ctx) {
     let senderVpa = body.senderVpa;
     let observedAt = body.observedAt ? new Date(body.observedAt) : new Date();
 
-    // Security Invariant (Issues #24, #61): Validate Android notification package name if notification origin
-    if (body.rawNotification) {
-      const rawPkg = body.rawNotification.package;
+    // Security Invariant (Issues #24, #61): the notification package must be declared and
+    // must be on the allowlist. Validating it only when `rawNotification` was present let a
+    // caller omit the field entirely and still reach the verification pipeline.
+    //
+    // The package is required on the notification-listener route, which is where the
+    // allowlist is the control. The plain SMS-broadcast route has no package to report (the
+    // broadcast only carries the sender address) and is authenticated by the device HMAC
+    // instead, so requiring one there would break the observer.
+    const rawPkg = body.rawNotification?.package;
+    if (requirePackage) {
       if (!rawPkg || typeof rawPkg !== 'string' || !rawPkg.trim()) {
         HttpServer.json(res, 400, {
           accepted: false,
@@ -342,7 +349,9 @@ export function registerPollerRoutes(server, ctx) {
         });
         return;
       }
+    }
 
+    if (rawPkg && typeof rawPkg === 'string' && rawPkg.trim()) {
       const notificationPackage = rawPkg.trim().toLowerCase();
       if (!isAllowedNotificationPackage(notificationPackage)) {
         HttpServer.json(res, 400, {
@@ -463,8 +472,9 @@ export function registerPollerRoutes(server, ctx) {
     });
   };
 
-  server.post('/api/v1/pollers/android/events', handleAndroidSmsEvents);
-  server.post('/api/v1/observers/sms', handleAndroidSmsEvents);
+  // The notification-listener route must declare its package; the SMS-broadcast route has none.
+  server.post('/api/v1/pollers/android/events', (req, res) => handleAndroidSmsEvents(req, res, { requirePackage: true }));
+  server.post('/api/v1/observers/sms', (req, res) => handleAndroidSmsEvents(req, res, { requirePackage: false }));
 
   // --- ANDROID HEARTBEAT HANDLER ---
   const handleAndroidHeartbeat = async (req, res) => {
