@@ -410,6 +410,37 @@ describe('Gateway Hardening & Invariant Protection Test Suite (#23, #25, #26, #2
     assert.match(res.body.error, /Untrusted Android notification package/);
   });
 
+  test('Issue #61: Android observer rejects observations when rawNotification is missing package parameter', async () => {
+    const deviceId = 'test-android-device-pkg-1';
+    const signingKey = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    const timestamp = Date.now().toString();
+    const payloadObj = {
+      deviceId,
+      amount: '500.00',
+      amountPaise: '50000',
+      observedAt: new Date().toISOString(),
+      rawNotification: {
+        title: 'Payment Received',
+        text: 'Received Rs 500 via UPI'
+      }
+    };
+    const bodyStr = JSON.stringify(payloadObj);
+    const { generateHmac } = await import('@youpi/common');
+    const signature = generateHmac(`${bodyStr}:${timestamp}`, signingKey);
+
+    const res = await request('/api/v1/pollers/android/events', {
+      method: 'POST',
+      headers: {
+        'X-Timestamp': timestamp,
+        'X-Signature': signature
+      },
+      body: bodyStr
+    });
+
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /must specify a valid package name in rawNotification\.package/);
+  });
+
   test('Issue #9: findByMobile strictly matches exact numbers without unanchored LIKE injection', async () => {
     const customerRepo = apiInstance.app.context.customerRepo;
     const targetMobile = '9876500001';
