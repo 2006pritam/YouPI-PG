@@ -1,52 +1,52 @@
-area: android:
+'area: android':
   - changed-files:
       - any-glob-to-any-file: 'apps/android-observer-app/**'
 
-area: payment-engine:
+'area: payment-engine':
   - changed-files:
       - any-glob-to-any-file: 'apps/payment-api/**'
 
-area: checkout:
+'area: checkout':
   - changed-files:
       - any-glob-to-any-file: 'apps/checkout-portal/**'
 
-area: merchant-admin:
+'area: merchant-admin':
   - changed-files:
       - any-glob-to-any-file: 'apps/merchant-admin/**'
 
-area: control-center:
+'area: control-center':
   - changed-files:
       - any-glob-to-any-file: 'apps/control-center/**'
 
-area: observers:
+'area: observers':
   - changed-files:
       - any-glob-to-any-file:
           - 'apps/sms-observer/**'
           - 'apps/gmail-observer/**'
 
-area: demo-store:
+'area: demo-store':
   - changed-files:
       - any-glob-to-any-file: 'apps/coin-wallet-store/**'
 
-area: core:
+'area: core':
   - changed-files:
       - any-glob-to-any-file: 'packages/core/**'
 
-area: database:
+'area: database':
   - changed-files:
       - any-glob-to-any-file: 'packages/db/**'
 
-area: sdk:
+'area: sdk':
   - changed-files:
       - any-glob-to-any-file: 'packages/merchant-sdk/**'
 
-area: ci:
+'area: ci':
   - changed-files:
       - any-glob-to-any-file:
           - '.github/**'
           - 'scripts/**'
 
-area: documentation:
+'area: documentation':
   - changed-files:
       - any-glob-to-any-file:
           - 'docs/**'
