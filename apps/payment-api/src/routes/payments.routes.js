@@ -1,7 +1,7 @@
 import { HttpServer } from '../server.js';
-import { toPaise, toRupeesString, resolveRuntimeUrls, PaymentStatus, safeEqual } from '@youpi/common';
+import { toPaise, toRupeesString, resolveRuntimeUrls, PaymentStatus, safeEqual, verifyHmac } from '@youpi/common';
 import { isTerminalStatus, toPublicOutcome, verifyRegisteredDeviceCredentials } from '@youpi/core';
-import { isPaymentOwner } from '../auth-guard.js';
+import { isAdminRequest, isPaymentOwner } from '../auth-guard.js';
 
 /**
  * Registers merchant-facing payment routes.
@@ -46,16 +46,66 @@ export function registerPaymentRoutes(server, ctx) {
       return;
     }
 
-    if (req.headers['x-merchant-key']) {
-      if (!merchant.webhookSecret || !safeEqual(req.headers['x-merchant-key'].trim(), merchant.webhookSecret)) {
+    const presentedMerchantKey = req.headers['x-merchant-key'] || body.merchantKey;
+    const presentedOrderToken = req.headers['x-order-token'] || body.orderToken;
+
+    if (presentedMerchantKey !== undefined && presentedMerchantKey !== null) {
+      const keyValid = typeof ctx.merchantRepo.verifyApiKey === 'function'
+        ? ctx.merchantRepo.verifyApiKey(merchant, String(presentedMerchantKey))
+        : (Boolean(merchant.webhookSecret) && safeEqual(String(presentedMerchantKey).trim(), merchant.webhookSecret));
+      if (!keyValid) {
         HttpServer.json(res, 401, { error: 'Invalid merchant key', code: 'INVALID_MERCHANT_KEY' });
         return;
       }
+    } else if (presentedOrderToken) {
+      let tokenAmountPaise;
+      try {
+        tokenAmountPaise = toPaise(body.amount);
+      } catch {
+        tokenAmountPaise = -1n;
+      }
+      const tokenCurrency = (body.currency || 'INR').toUpperCase();
+      const canonicalOrderPayload = `${merchant.id}:${body.orderId || ''}:${tokenAmountPaise.toString()}:${tokenCurrency}`;
+      const rawTokenSig = String(presentedOrderToken).replace(/^sha256=/, '').trim();
+      if (!merchant.webhookSecret || !verifyHmac(canonicalOrderPayload, merchant.webhookSecret, rawTokenSig)) {
+        HttpServer.json(res, 401, { error: 'Invalid order token', code: 'INVALID_ORDER_TOKEN' });
+        return;
+      }
+    } else if (!isAdminRequest(req)) {
+      HttpServer.json(res, 401, {
+        error: 'Merchant API key is required (X-Merchant-Key).',
+        code: 'MISSING_MERCHANT_KEY'
+      });
+      return;
     }
 
     if (!body.orderId || !body.amount) {
       HttpServer.json(res, 400, { error: 'Missing required fields: orderId and amount.' });
       return;
+    }
+
+    let amountPaise;
+    try {
+      amountPaise = toPaise(body.amount);
+    } catch (err) {
+      HttpServer.json(res, 400, { error: err.message });
+      return;
+    }
+    const requestedCurrency = (body.currency || 'INR').toUpperCase();
+
+    const isExplicitTestAutoActivate = body.autoActivate === true || body.autoActivate === 'true';
+    if (isExplicitTestAutoActivate) {
+      const autoActivateAllowed =
+        process.env.NODE_ENV === 'test' ||
+        process.env.ALLOW_TEST_AUTOACTIVATE === 'true' ||
+        isAdminRequest(req);
+      if (!autoActivateAllowed) {
+        HttpServer.json(res, 403, {
+          error: 'autoActivate is restricted to admin or test environments.',
+          code: 'AUTOACTIVATE_FORBIDDEN'
+        });
+        return;
+      }
     }
 
     // returnUrl is echoed back to the customer's browser as a redirect target after
@@ -105,6 +155,16 @@ export function registerPaymentRoutes(server, ctx) {
     // Check idempotency & active session state
     const existing = ctx.sessionRepo.findByOrderId(merchant.id, body.orderId);
     if (existing) {
+      const existingCurrency = (existing.currency || 'INR').toUpperCase();
+      if (existing.amountPaise !== amountPaise || existingCurrency !== requestedCurrency) {
+        HttpServer.json(res, 409, {
+          error: 'ORDER_AMOUNT_MISMATCH',
+          code: 'ORDER_AMOUNT_MISMATCH',
+          message: `Order ${body.orderId} already exists with a different amount or currency.`
+        });
+        return;
+      }
+
       // If SUCCESS: order is already paid, return existing completed session
       if (existing.status === PaymentStatus.SUCCESS) {
         HttpServer.json(res, 200, {
@@ -178,14 +238,6 @@ export function registerPaymentRoutes(server, ctx) {
       body.orderId = body.orderId.replace(/-R\d+$/, '');
     }
 
-    let amountPaise;
-    try {
-      amountPaise = toPaise(body.amount);
-    } catch (err) {
-      HttpServer.json(res, 400, { error: err.message });
-      return;
-    }
-
     const isCounterPayment = body.method === 'CASH_COUNTER' || body.method === 'CARD_COUNTER';
 
     let receivingAccountId = null;
@@ -254,7 +306,6 @@ export function registerPaymentRoutes(server, ctx) {
     // Digital UPI payments MUST ALWAYS start in status INITIATED without acquiring a concurrency slot or timer.
     // Only physical counter payments (CASH_COUNTER, CARD_COUNTER) start as ACTIVE (they do not use UPI slots).
     // The only exception for UPI auto-activation is explicit developer test suite flag: body.autoActivate === true.
-    const isExplicitTestAutoActivate = body.autoActivate === true || body.autoActivate === 'true';
     const shouldActivateNow = isCounterPayment || isExplicitTestAutoActivate;
     const initialStatus = isCounterPayment ? PaymentStatus.ACTIVE : PaymentStatus.INITIATED;
 

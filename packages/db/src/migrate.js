@@ -48,6 +48,7 @@ export function runMigrations(targetDb) {
   }
 
   // Fallback alter columns if customers/sessions table exists without new columns
+  try { db.exec("ALTER TABLE merchants ADD COLUMN api_key_hash TEXT;"); } catch {}
   try { db.exec("ALTER TABLE customers ADD COLUMN email TEXT;"); } catch {}
   try { db.exec("ALTER TABLE customers ADD COLUMN mobile_number TEXT;"); } catch {}
   try { db.exec("ALTER TABLE customers ADD COLUMN otp_code TEXT;"); } catch {}

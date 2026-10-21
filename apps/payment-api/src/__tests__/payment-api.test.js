@@ -391,9 +391,20 @@ describe('Payment API End-to-End HTTP Integration Tests', () => {
     });
     assert.equal(ownerState.body.customer.phoneNumber, '9111222333');
 
-    // 5. Test action trigger hook
+    // 5. Test action trigger hook (rejects unauthenticated requests, succeeds with customer token)
+    const unauthHookRes = await request(`/api/v1/checkout/${paymentId}/trigger-hook`, {
+      method: 'POST',
+      body: {
+        action: 'CANCEL_CLICKED',
+        details: { reason: 'changed_mind' }
+      }
+    });
+    assert.equal(unauthHookRes.status, 401);
+    assert.equal(unauthHookRes.body.code, 'CUSTOMER_SESSION_REQUIRED');
+
     const hookRes = await request(`/api/v1/checkout/${paymentId}/trigger-hook`, {
       method: 'POST',
+      headers: { 'x-customer-token': regRes.body.token },
       body: {
         action: 'CANCEL_CLICKED',
         details: { reason: 'changed_mind' }

@@ -90,6 +90,10 @@ export function isPaymentOwner(req, session, ctx) {
   if (!presented || typeof presented !== 'string' || !presented.trim()) return false;
 
   const merchant = ctx.merchantRepo?.findById ? ctx.merchantRepo.findById(session.merchantId) : null;
-  if (!merchant?.webhookSecret) return false;
+  if (!merchant) return false;
+  if (typeof ctx.merchantRepo?.verifyApiKey === 'function') {
+    return ctx.merchantRepo.verifyApiKey(merchant, presented.trim());
+  }
+  if (!merchant.webhookSecret) return false;
   return safeEqual(presented.trim(), merchant.webhookSecret);
 }
