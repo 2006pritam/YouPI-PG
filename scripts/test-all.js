@@ -10,6 +10,7 @@ const testFiles = [
   'packages/core/src/__tests__/queue-timing.test.js',
   'packages/core/src/__tests__/webhook-engine.test.js',
   'packages/merchant-sdk/src/__tests__/merchant-sdk.test.js',
+  'packages/youpi-mcp/src/__tests__/mcp-server.test.js',
   'packages/merchant-sdk/src/__tests__/youpi-universal-integration.test.js',
   'apps/checkout-portal/src/__tests__/checkout-portal.test.js',
   'apps/checkout-portal/src/__tests__/checkout-xss.test.js',

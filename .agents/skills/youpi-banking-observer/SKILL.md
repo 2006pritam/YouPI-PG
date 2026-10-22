@@ -24,9 +24,9 @@ Use this skill when developing, testing, or auditing payment observation parsers
 ### SMS Observer (`apps/sms-observer` on port `6002`):
 Send a simulated incoming SMS payload:
 ```bash
-curl -X POST http://localhost:6002/webhook/sms \
+curl -X POST http://localhost:6002/process-sms \
   -H "Content-Type: application/json" \
-  -H "X-Observer-Token: $OBSERVER_TOKEN" \
+  -H "Authorization: Bearer $OBSERVER_API_TOKEN" \
   -d '{
     "sender": "VK-HDFCBK",
     "body": "Dear Customer, INR 499.00 credited to account **1234 on 21-OCT-26 by UPI/123456789012/Ref-TSHIRT. Available balance INR 10,450.00.",
@@ -37,9 +37,9 @@ curl -X POST http://localhost:6002/webhook/sms \
 ### Gmail Observer (`apps/gmail-observer` on port `6003`):
 Send a simulated incoming Gmail alert:
 ```bash
-curl -X POST http://localhost:6003/webhook/gmail \
+curl -X POST http://localhost:6003/process-email \
   -H "Content-Type: application/json" \
-  -H "X-Observer-Token: $OBSERVER_TOKEN" \
+  -H "Authorization: Bearer $OBSERVER_API_TOKEN" \
   -d '{
     "subject": "Credit Alert: A/C *1234 credited with INR 499.00",
     "snippet": "INR 499.00 received via UPI ref 123456789012",
@@ -49,7 +49,7 @@ curl -X POST http://localhost:6003/webhook/gmail \
 
 ## Adding New Bank Regex Patterns
 
-1. Update parser in `packages/core/src/attribution-engine.js` or `apps/sms-observer/src/parsers/`.
+1. Update the parser in `packages/core/src/bank-sms-parser.js` (shared) or `apps/sms-observer/src/sms-parser.js`.
 2. Ensure regex extracts:
    - `amountPaise` (integer in paise, e.g. 49900)
    - `utr` (`\b\d{12}\b` or bank specific alpha-numeric UTR)

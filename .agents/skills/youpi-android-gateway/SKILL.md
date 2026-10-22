@@ -16,7 +16,7 @@ Use this skill when developing, testing, or building the Android Banking SMS/Not
 - **Core Components**:
   1. `PaymentNotificationListenerService`: Extends `NotificationListenerService` to intercept banking SMS and UPI app push notifications.
   2. `ForegroundService`: Persistent low-priority background daemon keeping observer connection alive across aggressive OEM battery managers (MIUI, ColorOS, OneUI).
-  3. `ApiClient`: Posts captured bank alerts to gateway endpoint (`/webhook/sms` or `/api/v1/device/notification`) with HMAC authentication and device token.
+  3. `ApiClient`: Posts captured bank alerts to the gateway endpoints `/api/v1/observers/sms` (SMS broadcast) or `/api/v1/pollers/android/events` (notification listener), with HMAC authentication and the device token.
 
 ## Banking Package Allowlist
 
@@ -27,7 +27,7 @@ Run the idempotent allowlist synchronization script whenever packages or banking
 ```bash
 node scripts/sync-android-allowlist.js
 ```
-This updates `apps/android-observer-app/app/src/main/res/values/banking_packages.xml`.
+This updates the `ALLOWED_BANKING_PACKAGES` set in `apps/android-observer-app/app/src/main/java/com/youpi/observer/PaymentNotificationListenerService.java`.
 
 ## Certified APK Build Process
 
