@@ -32,8 +32,14 @@ COPY apps/android-observer-app/package.json ./apps/android-observer-app/
 # Clean installation of dependencies. Install scripts stay disabled during `npm ci` so no
 # arbitrary third-party postinstall code runs during the build, then better-sqlite3's native
 # binding is compiled explicitly: it is a transitive dependency of the WhatsApp Berry SDK and
-# has no prebuilt binary for this platform, so skipping it leaves that feature broken.
-RUN npm ci --ignore-scripts && npm rebuild better-sqlite3
+# has no prebuilt binary for node 24 on musl, so skipping it leaves that feature broken.
+#
+# There is no prebuilt binary to fall back on, so the C toolchain has to be present for
+# node-gyp. It is installed here in the throwaway deps stage only - the runner image is
+# built FROM base and therefore never inherits it.
+RUN apk add --no-cache --virtual .build-deps python3 make g++ \
+ && npm ci --ignore-scripts \
+ && npm rebuild better-sqlite3
 
 # ── Stage 2: Builder ────────────────────────────────────────────────────────
 FROM deps AS builder
