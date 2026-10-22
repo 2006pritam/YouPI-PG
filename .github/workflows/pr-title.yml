@@ -9,7 +9,10 @@ on:
       - reopened
 
 permissions:
-  pull-requests: read
+  contents: read
+  # The action reports a rejected title by posting a comment on the pull request, which
+  # needs write access. Without it the job fails with a 403 instead of explaining why.
+  pull-requests: write
 
 jobs:
   validate:
