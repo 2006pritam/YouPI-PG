@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS merchants (
     contact_phone VARCHAR(20) NOT NULL,
     webhook_url VARCHAR(1024),
     webhook_secret VARCHAR(255) NOT NULL,
+    api_key_hash VARCHAR(64),
     branding TEXT NOT NULL DEFAULT '{"primaryColor":"#2563eb","appName":"YOUPI PG","logoUrl":null}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

@@ -654,5 +654,88 @@ describe('Gateway Hardening & Invariant Protection Test Suite (#23, #25, #26, #2
     assert.equal(authRes.body.customer.name, 'Vikram Malhotra');
     assert.equal(authRes.body.customer.email, 'vikram.malhotra@testmail.com');
   });
+
+  test('Issue #63 & #69: POST /api/v1/payments rejects requests without merchant key, accepts hashed API key, and restricts autoActivate', async () => {
+    const merchantRepo = new MerchantRepository(testDb);
+    const merchantId = '00000000-0000-0000-0000-000000000001';
+    const dedicatedApiKey = 'mk_live_dedicated_merchant_api_key_6369';
+    merchantRepo.update(merchantId, { apiKey: dedicatedApiKey });
+
+    // 1. Completely unauthenticated request (no Authorization, no X-Merchant-Key) -> 401 MISSING_MERCHANT_KEY
+    const url = new URL('/api/v1/payments', baseUrl);
+    const unauthRes = await new Promise((resolve, reject) => {
+      const req = http.request(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-merchant-id': merchantId }
+      }, (res) => {
+        let data = '';
+        res.on('data', c => { data += c; });
+        res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(data) }));
+      });
+      req.on('error', reject);
+      req.write(JSON.stringify({ orderId: `UNAUTH-${Date.now()}`, amount: '100.00' }));
+      req.end();
+    });
+    assert.equal(unauthRes.status, 401);
+    assert.equal(unauthRes.body.code, 'MISSING_MERCHANT_KEY');
+
+    // 2. Request with valid dedicated API key (verified against api_key_hash) -> 201
+    const orderId = `KEY-OK-${Date.now()}`;
+    const keyRes = await new Promise((resolve, reject) => {
+      const req = http.request(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-merchant-id': merchantId,
+          'x-merchant-key': dedicatedApiKey
+        }
+      }, (res) => {
+        let data = '';
+        res.on('data', c => { data += c; });
+        res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(data) }));
+      });
+      req.on('error', reject);
+      req.write(JSON.stringify({ orderId, amount: '250.00', currency: 'INR' }));
+      req.end();
+    });
+    assert.equal(keyRes.status, 201);
+    assert.equal(keyRes.body.orderId, orderId);
+
+    // 3. Reusing the same orderId with a different amount -> 409 ORDER_AMOUNT_MISMATCH
+    const mismatchRes = await request('/api/v1/payments', {
+      method: 'POST',
+      headers: { 'x-merchant-id': merchantId, 'x-merchant-key': dedicatedApiKey },
+      body: { orderId, amount: '1.00', currency: 'INR' }
+    });
+    assert.equal(mismatchRes.status, 409);
+    assert.equal(mismatchRes.body.code, 'ORDER_AMOUNT_MISMATCH');
+
+    // 4. In production mode, non-admin caller with autoActivate: true -> 403 AUTOACTIVATE_FORBIDDEN
+    const prevEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const prodAutoRes = await new Promise((resolve, reject) => {
+        const req = http.request(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-merchant-id': merchantId,
+            'x-merchant-key': dedicatedApiKey
+          }
+        }, (res) => {
+          let data = '';
+          res.on('data', c => { data += c; });
+          res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(data) }));
+        });
+        req.on('error', reject);
+        req.write(JSON.stringify({ orderId: `PROD-AUTO-${Date.now()}`, amount: '100.00', autoActivate: true }));
+        req.end();
+      });
+      assert.equal(prodAutoRes.status, 403);
+      assert.equal(prodAutoRes.body.code, 'AUTOACTIVATE_FORBIDDEN');
+    } finally {
+      process.env.NODE_ENV = prevEnv;
+    }
+  });
 });
 

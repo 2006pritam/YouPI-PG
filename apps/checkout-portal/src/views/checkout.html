@@ -330,10 +330,14 @@
         });
       } catch { }
 
+      const sessionToken = typeof getStoredSessionToken === 'function' ? getStoredSessionToken() : null;
+      const headers = typeof getApiHeaders === 'function'
+        ? getApiHeaders({ 'Content-Type': 'application/json', ...(sessionToken ? { 'x-customer-token': sessionToken } : {}) })
+        : { 'Content-Type': 'application/json', ...(sessionToken ? { 'x-customer-token': sessionToken } : {}) };
       fetch(`${API_BASE}/api/v1/checkout/${PAYMENT_ID}/trigger-hook`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, details })
+        headers,
+        body: JSON.stringify({ action, details, ...(sessionToken ? { token: sessionToken } : {}) })
       }).catch(() => { });
     }
 

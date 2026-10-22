@@ -3683,7 +3683,7 @@
       const clear = () => { try { sessionStorage.removeItem(KEY); } catch (e) {} };
 
       function isProtected(url) {
-        return /\/api\/v1\/admin\//.test(url) && !/\/admin\/sms-gateway\/download-apk/.test(url);
+        return (/\/api\/v1\/admin\//.test(url) || /\/api\/services/.test(url) || /\/api\/admin\/tickets/.test(url)) && !/\/admin\/sms-gateway\/download-apk/.test(url);
       }
 
       function prompt(message) {
@@ -3729,6 +3729,7 @@
         if (!read()) {
           await prompt();
           if (typeof connectAdminEventsSse === 'function') connectAdminEventsSse();
+          if (typeof connectServicesLogsSse === 'function') connectServicesLogsSse();
         }
         const attempt = () => {
           const headers = new Headers((init && init.headers) || (input && input.headers) || {});
@@ -3741,6 +3742,7 @@
           await prompt('That token was rejected. Enter the admin API token again.');
           res = await attempt();
           if (res.ok && typeof connectAdminEventsSse === 'function') connectAdminEventsSse();
+          if (res.ok && typeof connectServicesLogsSse === 'function') connectServicesLogsSse();
         }
         return res;
       }
@@ -4147,8 +4149,10 @@
     let rawLogsBuffer = [];
     function connectServicesLogsSse() {
       if (servicesLogsSse) return;
+      const token = window.__youpiAdminAuth ? window.__youpiAdminAuth.token() : '';
+      if (!token) return;
       try {
-        servicesLogsSse = new EventSource('/api/logs/stream');
+        servicesLogsSse = new EventSource(`/api/logs/stream?token=${encodeURIComponent(token)}`);
         servicesLogsSse.addEventListener('log', (e) => {
           try {
             const entry = JSON.parse(e.data);
