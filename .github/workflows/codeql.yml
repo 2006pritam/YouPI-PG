@@ -7,6 +7,7 @@ on:
     paths:
       - 'apps/**'
       - 'packages/**'
+      - 'scripts/**'
       - '.github/workflows/codeql.yml'
   pull_request:
     branches:
@@ -14,6 +15,7 @@ on:
     paths:
       - 'apps/**'
       - 'packages/**'
+      - 'scripts/**'
       - '.github/workflows/codeql.yml'
   schedule:
     - cron: '0 4 * * 1'
@@ -37,6 +39,9 @@ jobs:
         include:
           - language: javascript-typescript
             build-mode: none
+          # The Android observer is Java; without this it was never analysed.
+          - language: java-kotlin
+            build-mode: none
 
     steps:
       - name: Checkout Repository
@@ -49,6 +54,9 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
 
       - name: Perform CodeQL Analysis
+        # A pull request from a fork runs with a read-only token, so the SARIF upload
+        # cannot succeed. Skip it there rather than failing the job.
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           category: "/language:${{ matrix.language }}"

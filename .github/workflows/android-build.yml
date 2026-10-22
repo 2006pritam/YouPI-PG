@@ -36,7 +36,7 @@ jobs:
         uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '17.0.13'
 
       - name: Set up Node.js 24
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -50,7 +50,20 @@ jobs:
       - name: Compile Certified Android APK
         run: npm run build:android:apk
 
+      - name: Verify APK Checksum
+        # Verifies that the APK and the .sha256 file uploaded together describe the same
+        # bytes, so a corrupted or mismatched artifact pair cannot be published. It is not
+        # an attestation against the checksum committed to the repository: the build signs
+        # with a throwaway key, so the produced APK differs on every run.
+        run: |
+          set -euo pipefail
+          cd apps/android-observer-app
+          sha256sum -c youpi-sms-gateway.apk.sha256
+
       - name: Verify Android Observer Tests
+        env:
+          NODE_ENV: test
+          YOUPI_MODE: localhost
         run: node --test apps/android-observer-app/__tests__/android-observer.test.js
 
       - name: Upload Android APK & Checksum Artifacts
@@ -61,3 +74,4 @@ jobs:
             apps/android-observer-app/youpi-sms-gateway.apk
             apps/android-observer-app/youpi-sms-gateway.apk.sha256
           if-no-files-found: error
+          retention-days: 14
