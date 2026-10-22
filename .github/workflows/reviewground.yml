@@ -2,6 +2,7 @@ name: 🛡️ ReviewGround AI Code Review & CI Verification
 
 on:
   pull_request:
+    branches: [main]
     types: [opened, synchronize, reopened]
     paths-ignore:
       - '**.md'
@@ -35,11 +36,12 @@ jobs:
           fetch-depth: 0
 
       - name: Run ReviewGround AI Review
-        uses: arungupta1526/reviewground@a95e4dab1fd2b8bb9d02b6f3fc9a7f5c89d1cc76 # v1
+        uses: arungupta1526/reviewground@4840f45c6442ae5b7ff3af7a17cfa0b6812c66f0 # v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           enable-pr-description-update: 'true'
           enable-check-run: 'true'
+          enable-prune-inline-suggestions: 'true'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
