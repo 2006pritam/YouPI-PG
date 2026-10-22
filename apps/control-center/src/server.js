@@ -25,12 +25,10 @@ function hasAdminToken(req, url = null, pathname = '') {
   if (match) {
     return safeEqual(match[1].trim(), getAdminToken());
   }
-  if (req.method?.toUpperCase() === 'GET' && pathname === '/api/logs/stream' && url) {
-    const queryToken = (url.searchParams.get('token') || '').trim();
-    if (queryToken) {
-      return safeEqual(queryToken, getAdminToken());
-    }
-  }
+  // NOTE: the stream token is deliberately NOT accepted from a query parameter. A
+  // credential in the URL ends up in access logs, browser history and Referer headers.
+  // The dashboards now open the stream with fetch() so the token travels in the
+  // Authorization header only.
   return false;
 }
 

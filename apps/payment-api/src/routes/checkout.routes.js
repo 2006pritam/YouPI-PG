@@ -1,5 +1,5 @@
 import { HttpServer } from '../server.js';
-import { toRupeesString, buildUpiUri, PaymentStatus, PaymentMethod, UPI_PROVIDERS, isInternalServiceRequest, isValidTransition } from '@youpi/common';
+import { toRupeesString, buildUpiUri, PaymentStatus, PaymentMethod, UPI_PROVIDERS, isInternalServiceRequest, isValidTransition, getObserverToken } from '@youpi/common';
 import { validateSessionDeviceAccess, verifyRegisteredDeviceCredentials } from '@youpi/core';
 import { isAdminRequest, isPaymentOwner } from '../auth-guard.js';
 
@@ -236,7 +236,10 @@ async function checkUpiServerHealth(ctx, enabledMethods = [], sellingMode = 'OFF
   if (!smsHealthy) {
     try {
       const smsPort = Number(process.env.SMS_OBSERVER_PORT || 6002);
-      const res = await fetch(`http://127.0.0.1:${smsPort}/api/browser/status`, { signal: AbortSignal.timeout(800) });
+      const res = await fetch(`http://127.0.0.1:${smsPort}/api/browser/status`, {
+          headers: { 'Authorization': `Bearer ${getObserverToken()}` },
+          signal: AbortSignal.timeout(800)
+        });
       if (res.ok) {
         const data = await res.json();
         const isRecent = data.lastSeenAt && (Date.now() - new Date(data.lastSeenAt).getTime() < 300000);
@@ -271,7 +274,10 @@ async function checkUpiServerHealth(ctx, enabledMethods = [], sellingMode = 'OFF
 
       if (!pollerActive) {
         try {
-          const res = await fetch(`http://127.0.0.1:${gmailPort}/api/browser/status`, { signal: AbortSignal.timeout(800) });
+          const res = await fetch(`http://127.0.0.1:${gmailPort}/api/browser/status`, {
+          headers: { 'Authorization': `Bearer ${getObserverToken()}` },
+          signal: AbortSignal.timeout(800)
+        });
           if (res.ok) {
             const data = await res.json();
             if (data.isLoggedIn || data.status === 'CONNECTED' || data.isPolling) {
@@ -303,7 +309,10 @@ async function checkUpiServerHealth(ctx, enabledMethods = [], sellingMode = 'OFF
       // Check if browser-based Gmail automator is actively logged in
       try {
         const gmailPort = Number(process.env.GMAIL_OBSERVER_PORT || 6003);
-        const res = await fetch(`http://127.0.0.1:${gmailPort}/api/browser/status`, { signal: AbortSignal.timeout(800) });
+        const res = await fetch(`http://127.0.0.1:${gmailPort}/api/browser/status`, {
+          headers: { 'Authorization': `Bearer ${getObserverToken()}` },
+          signal: AbortSignal.timeout(800)
+        });
         if (res.ok) {
           const data = await res.json();
           if (data.isLoggedIn === true && data.status === 'CONNECTED') {

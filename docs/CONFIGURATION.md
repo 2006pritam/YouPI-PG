@@ -60,6 +60,19 @@ prove which merchant it is. There are three accepted credentials:
 Affected routes: `GET /api/v1/payments/:id`, `GET /api/v1/payments/:id/cod`,
 `GET /api/v1/orders/:orderId/cod` and `GET /api/v1/checkout/:id/state`.
 
+### On `POST /api/v1/payments`
+
+`X-Merchant-Key` is **optional** here, and the request is refused with
+`401 MISSING_MERCHANT_KEY` only when it names a merchant other than the gateway's
+default one. The public one-script integration (the browser SDK) cannot carry a
+merchant secret — a secret in browser JavaScript is public — so the default-merchant
+path has to stay open. Use `X-Merchant-Key` (or `X-Order-Token`) whenever a request
+targets a specific tenant, and reuse an `orderId` only with the same amount: a
+mismatch is rejected with `409 ORDER_AMOUNT_MISMATCH`.
+
+`autoActivate: true` is restricted to admin-authenticated requests or to
+`NODE_ENV=test`; elsewhere it is refused with `403 AUTOACTIVATE_FORBIDDEN`.
+
 **Without a credential these routes return a redacted public view** — status, amount,
 currency, method and order id only. Customer name, email and phone number are never
 disclosed to an anonymous caller that merely holds a payment id.

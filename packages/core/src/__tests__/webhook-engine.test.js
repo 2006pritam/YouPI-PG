@@ -211,6 +211,50 @@ describe('Webhook Engine Integration Tests', () => {
     assert.equal(verifyHmac(JSON.stringify(retried.body), merchant.webhookSecret, retrySig), true);
   });
 
+  test('a retried delivery keeps the timestamp and delivery id of the original body', async () => {
+    const merchant = merchantRepo.create({
+      businessName: 'Retry Consistency Store',
+      slug: 'retry-consistency-store',
+      contactEmail: 'retry@example.com',
+      contactPhone: '9876543210',
+      webhookUrl: `http://localhost:${receiverPort}/webhook-retry-consistency`,
+      webhookSecret: 'test_secret_for_retry_consistency_123'
+    });
+
+    const session = sessionRepo.create({
+      merchantId: merchant.id,
+      orderId: 'HOOK-ORD-RETRY-CONSISTENCY',
+      amountPaise: 70000n
+    });
+
+    receivedWebhooks = [];
+    shouldReceiverFail = false;
+
+    const result = await webhookEngine.dispatch('SUCCESS', session);
+    assert.equal(result.delivered, true);
+    const first = receivedWebhooks[receivedWebhooks.length - 1];
+    const firstBody = first.body;
+    assert.ok(firstBody.timestamp, 'payload must carry a timestamp');
+    assert.ok(firstBody.deliveryId, 'payload must carry a delivery id');
+
+    // The retry resends the SAME body, so the headers must describe that same body.
+    db.execute('UPDATE webhook_deliveries SET next_retry_at = ? WHERE id = ?', [
+      new Date(Date.now() - 60000).toISOString(), result.deliveryId
+    ]);
+    await webhookEngine.retryPending();
+
+    const retried = receivedWebhooks[receivedWebhooks.length - 1];
+    assert.equal(String(retried.headers['x-gateway-timestamp']), String(firstBody.timestamp),
+      'a retry must not recompute the timestamp, or it disagrees with the signed body');
+    assert.equal(String(retried.headers['x-gateway-delivery-id']), String(firstBody.deliveryId),
+      'a retry must keep the delivery id of the body it resends');
+    assert.equal(JSON.stringify(retried.body), JSON.stringify(first.body), 'a retry must resend the identical body');
+
+    // And the merchant's verifier must accept the retried delivery.
+    const rawSig = retried.headers['x-gateway-signature'].replace('sha256=', '');
+    assert.equal(verifyHmac(JSON.stringify(retried.body), merchant.webhookSecret, rawSig), true);
+  });
+
   test('persists delivery failure record when merchant webhookSecret is missing', async () => {
     const merchantNoSecret = merchantRepo.create({
       businessName: 'No Secret Store',

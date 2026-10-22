@@ -661,7 +661,9 @@ describe('Gateway Hardening & Invariant Protection Test Suite (#23, #25, #26, #2
     const dedicatedApiKey = 'mk_live_dedicated_merchant_api_key_6369';
     merchantRepo.update(merchantId, { apiKey: dedicatedApiKey });
 
-    // 1. Completely unauthenticated request (no Authorization, no X-Merchant-Key) -> 401 MISSING_MERCHANT_KEY
+    // 1. Completely unauthenticated request naming the DEFAULT merchant -> allowed.
+    //    The public one-script integration (the browser SDK) cannot carry a merchant
+    //    secret, so this path has to stay open for the gateway's own merchant.
     const url = new URL('/api/v1/payments', baseUrl);
     const unauthRes = await new Promise((resolve, reject) => {
       const req = http.request(url, {
@@ -676,8 +678,31 @@ describe('Gateway Hardening & Invariant Protection Test Suite (#23, #25, #26, #2
       req.write(JSON.stringify({ orderId: `UNAUTH-${Date.now()}`, amount: '100.00' }));
       req.end();
     });
-    assert.equal(unauthRes.status, 401);
-    assert.equal(unauthRes.body.code, 'MISSING_MERCHANT_KEY');
+    assert.equal(unauthRes.status, 201);
+
+    // 1b. An unauthenticated request naming a DIFFERENT merchant -> 401, so an anonymous
+    //     caller still cannot inject sessions into another tenant.
+    const otherMerchant = merchantRepo.create({
+      businessName: 'Other Tenant',
+      slug: 'other-tenant',
+      contactEmail: 'other@example.com',
+      contactPhone: '9876543210'
+    });
+    const crossTenantRes = await new Promise((resolve, reject) => {
+      const req = http.request(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-merchant-id': otherMerchant.id }
+      }, (res) => {
+        let data = '';
+        res.on('data', c => { data += c; });
+        res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(data) }));
+      });
+      req.on('error', reject);
+      req.write(JSON.stringify({ orderId: `XTENANT-${Date.now()}`, amount: '100.00' }));
+      req.end();
+    });
+    assert.equal(crossTenantRes.status, 401);
+    assert.equal(crossTenantRes.body.code, 'MISSING_MERCHANT_KEY');
 
     // 2. Request with valid dedicated API key (verified against api_key_hash) -> 201
     const orderId = `KEY-OK-${Date.now()}`;

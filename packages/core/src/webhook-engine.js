@@ -234,7 +234,23 @@ export class WebhookEngine {
         continue;
       }
 
-      const timestamp = Date.now().toString();
+      // The retry resends the ORIGINAL body byte for byte, so the headers must describe
+      // that same body. Recomputing a fresh timestamp here would make the header disagree
+      // with the timestamp embedded in the payload, and the merchant's verification (which
+      // cross-checks the two) would reject every retry.
+      let storedTimestamp = null;
+      let storedDeliveryId = item.id;
+      try {
+        const storedPayload = JSON.parse(item.payload);
+        if (storedPayload && storedPayload.timestamp !== undefined && storedPayload.timestamp !== null) {
+          storedTimestamp = String(storedPayload.timestamp);
+        }
+        if (storedPayload && storedPayload.deliveryId) {
+          storedDeliveryId = String(storedPayload.deliveryId);
+        }
+      } catch {}
+
+      const timestamp = storedTimestamp || Date.now().toString();
       const signature = generateHmac(item.payload, merchant.webhookSecret);
       const timestampedSignature = generateHmac(`${timestamp}.${item.payload}`, merchant.webhookSecret);
 
@@ -250,7 +266,7 @@ export class WebhookEngine {
             'X-Gateway-Event': item.event_type,
             'X-Gateway-Signature': `sha256=${signature}`,
             'X-Gateway-Signature-V2': `sha256=${timestampedSignature}`,
-            'X-Gateway-Delivery-Id': item.id,
+            'X-Gateway-Delivery-Id': storedDeliveryId,
             'X-Gateway-Timestamp': timestamp
           },
           body: item.payload,

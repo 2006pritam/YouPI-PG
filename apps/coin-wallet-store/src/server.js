@@ -35,7 +35,12 @@ const MAX_JSON_BODY_BYTES = 64 * 1024;
 /** Largest single top-up the demo store accepts. */
 const MAX_TOPUP_RUPEES = 100000;
 /** Accepted clock skew for an inbound webhook's X-Gateway-Timestamp. */
-const WEBHOOK_MAX_SKEW_MS = 5 * 60 * 1000;
+// The gateway signs the delivery timestamp into the body and reuses it on every retry, so
+// a retried delivery legitimately arrives with an older timestamp. The window therefore
+// has to cover the gateway's whole retry schedule (backoffs up to 1 hour), otherwise a
+// legitimate retry is rejected as a replay. Replay of the SAME delivery is still caught by
+// the delivery-id dedupe below.
+const WEBHOOK_MAX_SKEW_MS = 2 * 60 * 60 * 1000;
 
 /** Keeps a client-supplied pack name printable and bounded before it is stored as metadata. */
 function sanitizePackName(value) {

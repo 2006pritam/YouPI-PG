@@ -7,9 +7,6 @@ const PUBLIC_ADMIN_PATHS = new Set(['/api/v1/admin/sms-gateway/download-apk']);
 /** Admin-prefixed routes the local observer processes call with the observer token. */
 const OBSERVER_ADMIN_PATHS = new Set(['/api/v1/admin/gmail/credentials']);
 
-/** SSE cannot send headers from EventSource, so these accept `?token=` on GET. */
-const QUERY_TOKEN_PATHS = new Set(['/api/v1/admin/stream']);
-
 function bearerToken(req) {
   const header = req.headers['authorization'] || '';
   const match = /^Bearer\s+(.+)$/i.exec(header);
@@ -52,10 +49,11 @@ export function authGuard(req, res, pathname, url) {
   const level = requiredLevel(method, pathname);
   if (!level) return false;
 
-  let presented = bearerToken(req);
-  if (!presented && method === 'GET' && QUERY_TOKEN_PATHS.has(pathname)) {
-    presented = url.searchParams.get('token') || '';
-  }
+  // The token is only ever accepted from the Authorization header. Accepting it from a
+  // query parameter put an admin credential into access logs, browser history and Referer
+  // headers; the admin dashboard now opens its streams with fetch() so the credential
+  // travels in the header only.
+  const presented = bearerToken(req);
 
   const ok = presented && (
     safeEqual(presented, getAdminToken()) ||

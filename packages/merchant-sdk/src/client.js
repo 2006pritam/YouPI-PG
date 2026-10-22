@@ -160,7 +160,12 @@ export class YoupiPaymentClient {
     }
 
     const actualSignature = signatureHeader.replace('sha256=', '');
-    const toleranceMs = Number.isFinite(opts.toleranceMs) ? opts.toleranceMs : 5 * 60 * 1000;
+    // The gateway signs the delivery timestamp into the body and reuses it on every retry,
+    // so a retried delivery legitimately arrives with an older timestamp. The default window
+    // therefore covers the gateway's whole retry schedule (backoffs up to 1 hour); without
+    // that, a legitimate retry is rejected as a replay. Replay of the SAME delivery is
+    // still caught by deduplicating on the delivery id.
+    const toleranceMs = Number.isFinite(opts.toleranceMs) ? opts.toleranceMs : 2 * 60 * 60 * 1000;
 
     // Validate timestamp header freshness if supplied (or explicitly required via 4-arg call)
     if (timestampHeader !== null || options !== null) {
