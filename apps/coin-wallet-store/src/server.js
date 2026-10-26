@@ -294,6 +294,45 @@ export class CoinWalletStoreServer {
         }
       }
 
+      // REVERSE PROXY: /admin, /fonts/*, and the admin-only APIs
+      // (/api/services/*, /api/logs/stream, /api/admin/*) -> Merchant Admin (Port 6001).
+      // This exposes the admin dashboard on the single public domain (Voroa gives
+      // one public port per service, not the -admin subdomain the runtime config
+      // calculates for a self-hosted setup). Admin data APIs still require the
+      // admin API token (ADMIN_API_TOKEN) — this proxy does not bypass that check,
+      // it only forwards the browser's Authorization header to the admin server.
+      // /api/v1/* above already goes to the Payment API, so it is not intercepted here.
+      if (pathname === '/admin' || pathname === '/admin/' || pathname.startsWith('/fonts/')
+        || pathname === '/api/services' || pathname.startsWith('/api/services/')
+        || pathname === '/api/logs/stream' || pathname.startsWith('/api/admin/')) {
+        const adminPort = Number(process.env.MERCHANT_ADMIN_PORT || 6001);
+        const adminPath = pathname === '/admin/' ? '/admin' : req.url;
+        const proxyReq = http.request({
+          hostname: '127.0.0.1',
+          port: adminPort,
+          path: adminPath,
+          method: req.method,
+          headers: {
+            ...sanitizedForwardHeaders(req, `localhost:${adminPort}`),
+            'x-forwarded-host': req.headers.host || '',
+            'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'http'
+          }
+        }, (proxyRes) => {
+          res.writeHead(proxyRes.statusCode, proxyRes.headers);
+          proxyRes.pipe(res);
+        });
+
+        proxyReq.on('error', (err) => {
+          if (!res.headersSent) {
+            res.writeHead(502, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Merchant Admin unavailable', details: err.message }));
+          }
+        });
+
+        req.pipe(proxyReq);
+        return;
+      }
+
       // GET / or /store
       if ((pathname === '/' || pathname === '/store') && (method === 'GET' || method === 'HEAD')) {
         try { this.storeHtml = fs.readFileSync(path.join(__dirname, 'store.html'), 'utf8'); } catch {}
