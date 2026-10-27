@@ -2493,6 +2493,10 @@
       closeCancelPaymentModal();
       if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
       if (queuePollTimer) { clearInterval(queuePollTimer); queuePollTimer = null; }
+      const authElBlocked = document.getElementById('preGatewayAuthView');
+      if (authElBlocked) { authElBlocked.hidden = true; authElBlocked.style.setProperty('display', 'none', 'important'); }
+      const gatewayElBlocked = document.getElementById('paymentGatewayInterface');
+      if (gatewayElBlocked) { gatewayElBlocked.hidden = false; gatewayElBlocked.style.removeProperty('display'); }
       
       const bar = document.getElementById('paymentMethodSelectorBar');
       if (bar) bar.style.display = 'none';
@@ -2571,6 +2575,10 @@
       if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
       if (queuePollTimer) { clearInterval(queuePollTimer); queuePollTimer = null; }
       if (sse) { try { sse.close(); } catch(e){} sse = null; }
+      const authElDup = document.getElementById('preGatewayAuthView');
+      if (authElDup) { authElDup.hidden = true; authElDup.style.setProperty('display', 'none', 'important'); }
+      const gatewayElDup = document.getElementById('paymentGatewayInterface');
+      if (gatewayElDup) { gatewayElDup.hidden = false; gatewayElDup.style.removeProperty('display'); }
 
       const bar = document.getElementById('paymentMethodSelectorBar');
       if (bar) bar.style.display = 'none';
