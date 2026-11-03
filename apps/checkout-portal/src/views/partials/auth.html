@@ -24,7 +24,7 @@
                     <span>+91</span>
                   </div>
                   <input type="tel" class="ypg-phone-control" id="authMobileInput" placeholder="10-digit mobile number"
-                    maxlength="10" inputmode="numeric" />
+                    maxlength="18" inputmode="numeric" autocomplete="tel-national" enterkeyhint="go" />
                 </div>
               </div>
 
@@ -55,13 +55,15 @@
 
               <div class="ypg-input-group">
                 <label class="ypg-input-label">Full Name</label>
-                <input type="text" class="ypg-input-control" id="authSignupName" placeholder="e.g. Alex Sharma" />
+                <input type="text" class="ypg-input-control" id="authSignupName" placeholder="e.g. Alex Sharma"
+                  autocomplete="name" autocapitalize="words" enterkeyhint="next" />
               </div>
 
               <div class="ypg-input-group">
                 <label class="ypg-input-label">Email Address</label>
                 <input type="email" class="ypg-input-control" id="authSignupEmail"
-                  placeholder="e.g. gaurav@example.com" />
+                  placeholder="e.g. alex@example.com" autocomplete="email" inputmode="email"
+                  autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" />
               </div>
 
               <button type="button" class="ypg-btn-auth-action" id="btnAuthSignup" onclick="handleAuthSignupSubmit()">
@@ -86,7 +88,7 @@
 
               <div class="ypg-input-group">
                 <input type="text" class="ypg-input-control ypg-otp-control" id="authOtpInput" placeholder="••••••"
-                  maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code"
+                  inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" enterkeyhint="go"
                   autocorrect="off" autocapitalize="off" spellcheck="false" />
               </div>
 

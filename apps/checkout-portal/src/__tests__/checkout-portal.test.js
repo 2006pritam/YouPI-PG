@@ -4,6 +4,7 @@ import http from 'node:http';
 import { startCheckoutServer } from '../index.js';
 import { generateQrMatrix, generateQrSvg } from '@youpi/core';
 import { frameAncestorOrigins } from '../server.js';
+import vm from 'node:vm';
 
 describe('Checkout Portal Integration Tests', () => {
   let serverInstance;
@@ -195,6 +196,59 @@ describe('Checkout Portal Integration Tests', () => {
       // redirect and postMessage guards live here.
       assert.ok(res.text.includes('STORAGE_KEY_IDENTITY'));
       assert.ok(res.text.includes('sanitizeRedirectUrl'));
+    });
+  });
+  describe('Sign-in input handling (smooth paste, autofill and honest OTP feedback)', () => {
+    async function loadHelpers() {
+      const res = await get('/checkout/pay_test_uuid_12345');
+      const grab = (name) => {
+        const m = res.text.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n    }\\n`));
+        assert.ok(m, `${name} must exist in the checkout page script`);
+        return m[0];
+      };
+      const ctx = vm.createContext({});
+      vm.runInContext(grab('normalizeMobileInput') + grab('normalizeOtpInput'), ctx);
+      return { html: res.text, normalizeMobileInput: ctx.normalizeMobileInput, normalizeOtpInput: ctx.normalizeOtpInput };
+    }
+
+    test('pasted phone numbers are normalised to the 10-digit national number', async () => {
+      const { normalizeMobileInput } = await loadHelpers();
+      assert.equal(normalizeMobileInput('9876543210'), '9876543210');
+      assert.equal(normalizeMobileInput('+91 98765 43210'), '9876543210');
+      assert.equal(normalizeMobileInput('+91-98765-43210'), '9876543210');
+      assert.equal(normalizeMobileInput('919876543210'), '9876543210');
+      assert.equal(normalizeMobileInput('09876543210'), '9876543210');
+      // Typing an 11th digit must not shift the number the buyer already entered.
+      assert.equal(normalizeMobileInput('98765432101'), '9876543210');
+      assert.equal(normalizeMobileInput(''), '');
+    });
+
+    test('OTP extraction accepts spaced, dashed and pasted-message codes', async () => {
+      const { normalizeOtpInput } = await loadHelpers();
+      assert.equal(normalizeOtpInput('123456'), '123456');
+      assert.equal(normalizeOtpInput('123 456'), '123456');
+      assert.equal(normalizeOtpInput('123-456'), '123456');
+      assert.equal(normalizeOtpInput('Your YOUPI code is 482913. Valid 5 min'), '482913');
+      assert.equal(normalizeOtpInput('12345'), '12345');
+    });
+
+    test('inputs do not truncate pasted text and expose autofill hints', async () => {
+      const { html } = await loadHelpers();
+      const tag = (id) => html.match(new RegExp(`<input[^>]*id="${id}"[^>]*>`))[0];
+      // maxlength="10"/"6" would cut "+91 98765 43210" or a pasted SMS before the handler runs.
+      assert.equal(/maxlength="(10|6)"/.test(tag('authMobileInput')), false);
+      assert.equal(/maxlength="(10|6)"/.test(tag('authOtpInput')), false);
+      assert.ok(tag('authMobileInput').includes('autocomplete="tel-national"'));
+      assert.ok(tag('authOtpInput').includes('autocomplete="one-time-code"'));
+      assert.ok(tag('authSignupName').includes('autocomplete="name"'));
+      assert.ok(tag('authSignupEmail').includes('autocomplete="email"'));
+      assert.ok(html.includes('id="ypgToast" class="ypg-toast" role="status" aria-live="polite"'));
+    });
+
+    test('login OTP is only announced as sent when the server accepted the request', async () => {
+      const { html } = await loadHelpers();
+      assert.ok(html.includes('async function requestLoginOtp('));
+      assert.ok(html.includes('if (!sent.ok && !sent.throttled)'));
     });
   });
 });

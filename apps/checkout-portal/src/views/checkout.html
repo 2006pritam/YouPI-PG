@@ -141,9 +141,11 @@
       toast.textContent = msg;
       toast.classList.add('show');
       if (toastTimer) clearTimeout(toastTimer);
+      // Longer messages (errors, instructions) get more reading time: 2.5s base, up to 6s.
+      const readMs = Math.min(6000, 2500 + Math.max(0, String(msg).length - 40) * 50);
       toastTimer = setTimeout(() => {
         toast.classList.remove('show');
-      }, 2500);
+      }, readMs);
     }
 
     // Toggle Order Breakdown Drawer
@@ -465,6 +467,37 @@
       }
     }
 
+    // Accepts "98765 43210", "+91 98765-43210", "091234 56789", etc. and returns up to 10 digits.
+    function normalizeMobileInput(raw) {
+      let digits = String(raw || '').replace(/\D/g, '');
+      if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
+      else if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1);
+      return digits.slice(0, 10);
+    }
+
+    // Pulls a 6-digit code out of whatever was typed or pasted ("Your code is 123 456").
+    function normalizeOtpInput(raw) {
+      const text = String(raw || '');
+      const digits = text.replace(/\D/g, '');
+      if (digits.length <= 6) return digits;
+      const standalone = text.match(/(?:^|\D)(\d{6})(?:\D|$)/);
+      return standalone ? standalone[1] : digits.slice(0, 6);
+    }
+
+    // Sends a login OTP and reports whether it really went out, so the UI never claims
+    // "OTP sent" when the server refused. A 429 means a code was sent moments ago.
+    async function requestLoginOtp(payload) {
+      const res = await fetch(`${API_BASE}/api/v1/customer/send-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      let data = {};
+      try { data = await res.json(); } catch (e) { }
+      if (data && data.devOtp) lastReceivedDevOtp = data.devOtp;
+      return { ok: res.ok, throttled: res.status === 429, data };
+    }
+
     function goToAuthStep(step) {
       currentAuthStep = step;
       const stepMobile = document.getElementById('authStepMobile');
@@ -558,7 +591,7 @@
       const input = document.getElementById('authMobileInput');
       const btn = document.getElementById('btnAuthContinue');
       const raw = input ? input.value : '';
-      const clean = String(raw).replace(/\D/g, '').slice(-10);
+      const clean = normalizeMobileInput(raw);
 
       if (!clean || clean.length !== 10) {
         showOptionToast('Please enter a valid 10-digit mobile number');
@@ -593,15 +626,11 @@
           currentAuthEmail = data.customer.email;
           btn.innerHTML = '<span>Sending WhatsApp OTP...</span>';
 
-          const sendRes = await fetch(`${API_BASE}/api/v1/customer/send-otp`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              mobileNumber: clean
-            })
-          });
-          const sendData = await sendRes.json();
-          if (sendData && sendData.devOtp) lastReceivedDevOtp = sendData.devOtp;
+          const sent = await requestLoginOtp({ mobileNumber: clean });
+          if (!sent.ok && !sent.throttled) {
+            showOptionToast(sent.data.error || 'Could not send the WhatsApp OTP. Please try again.');
+            return;
+          }
 
           const greetingEl = document.getElementById('authOtpGreeting');
           if (greetingEl) {
@@ -609,24 +638,24 @@
           }
 
           goToAuthStep('otp');
-          showOptionToast('OTP sent to your WhatsApp number!');
+          showOptionToast(sent.throttled
+            ? 'A code was just sent. Enter it below, or resend after the timer.'
+            : 'OTP sent to your WhatsApp number!');
         } else if (savedMatch) {
           // Known customer in browser saved accounts -> dispatch OTP directly with saved profile
           currentAuthName = savedMatch.name || 'Customer';
           currentAuthEmail = savedMatch.email || '';
           btn.innerHTML = '<span>Sending WhatsApp OTP...</span>';
 
-          const sendRes = await fetch(`${API_BASE}/api/v1/customer/send-otp`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              mobileNumber: clean,
-              name: currentAuthName,
-              email: currentAuthEmail
-            })
+          const sent = await requestLoginOtp({
+            mobileNumber: clean,
+            name: currentAuthName,
+            email: currentAuthEmail
           });
-          const sendData = await sendRes.json();
-          if (sendData && sendData.devOtp) lastReceivedDevOtp = sendData.devOtp;
+          if (!sent.ok && !sent.throttled) {
+            showOptionToast(sent.data.error || 'Could not send the WhatsApp OTP. Please try again.');
+            return;
+          }
 
           const greetingEl = document.getElementById('authOtpGreeting');
           if (greetingEl) {
@@ -634,7 +663,9 @@
           }
 
           goToAuthStep('otp');
-          showOptionToast('OTP sent to your WhatsApp number!');
+          showOptionToast(sent.throttled
+            ? 'A code was just sent. Enter it below, or resend after the timer.'
+            : 'OTP sent to your WhatsApp number!');
         } else {
           // New customer -> prompt for name and email
           goToAuthStep('signup');
@@ -2766,7 +2797,7 @@
     const mobIn = document.getElementById('authMobileInput');
     if (mobIn) {
       mobIn.addEventListener('input', (e) => {
-        const clean = e.target.value.replace(/\D/g, '').slice(0, 10);
+        const clean = normalizeMobileInput(e.target.value);
         if (e.target.value !== clean) {
           e.target.value = clean;
         }
@@ -2808,7 +2839,7 @@
     const otpIn = document.getElementById('authOtpInput');
     if (otpIn) {
       otpIn.addEventListener('input', (e) => {
-        const val = e.target.value.replace(/\D/g, '');
+        const val = normalizeOtpInput(e.target.value);
         e.target.value = val;
         if (val.length === 6) {
           handleAuthVerifyOtpSubmit();
