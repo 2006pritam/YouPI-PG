@@ -13,6 +13,8 @@
     "clean": "node scripts/clean.js",
     "db:setup": "node scripts/init-db.cjs",
     "sync:package": "node scripts/sync-package.cjs",
+    "setup": "node scripts/setup.js",
+    "token": "node scripts/token.js",
     "start": "node scripts/start.js",
     "start:prod": "node scripts/start.js",
     "start:prod:api": "node apps/payment-api/src/index.js",

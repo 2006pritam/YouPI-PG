@@ -1,4 +1,7 @@
+import './load-env.js';
 import { spawn } from 'node:child_process';
+import { checkNodeVersion, findBusyPorts, printBusyPorts, MIN_NODE } from './preflight.js';
+import { getAdminToken } from '../packages/common/src/index.js';
 import { runMigrations } from '../packages/db/src/migrate.js';
 import { startControlCenter } from '../apps/control-center/src/index.js';
 import { startCloudflaredSafely } from '../packages/common/src/tunnel-command.js';
@@ -9,6 +12,18 @@ if (!process.env.NODE_ENV) process.env.NODE_ENV = 'development';
 console.log('====================================================');
 console.log('🚀 Starting YOUPI PG (Development / Localhost Mode)');
 console.log('====================================================');
+
+// Friendly preflight: fail early with an actionable message instead of a raw stack trace.
+const nodeCheck = checkNodeVersion();
+if (!nodeCheck.ok) {
+  console.error(`\n❌ Node.js ${MIN_NODE.major}.${MIN_NODE.minor}+ is required (you have ${nodeCheck.current}). Install the current LTS from https://nodejs.org\n`);
+  process.exit(1);
+}
+const busyPorts = await findBusyPorts();
+if (busyPorts.length) {
+  printBusyPorts(busyPorts);
+  process.exit(1);
+}
 
 // 1. Run database migrations & seeds
 console.log('[1/2] Checking and applying database migrations...');
@@ -47,6 +62,11 @@ console.log('• YOUPI Showcase Store:        http://localhost:5000 (toggleable)
 console.log('• Gmail Payment Observer:       http://localhost:6003');
 console.log('• Google Messages / SMS Obs:    http://localhost:6002');
 console.log('====================================================');
+console.log('');
+console.log('👉 First time? Open http://localhost:6001 and sign in with this admin token:');
+console.log(`   ${getAdminToken()}`);
+console.log('   (Run "npm run token" to show it again.)');
+console.log('');
 console.log('Press Ctrl+C to stop all services gracefully.');
 
 // Handle graceful shutdown

@@ -252,10 +252,13 @@ cd youpi-pg
 npm install
 ```
 
-#### 2. Configure Environment
+#### 2. One-command setup
 ```bash
-cp .env.example .env
+npm run setup
 ```
+This checks your Node.js version, creates `.env`, prepares the database, generates secure keys and
+prints your **admin sign-in token** plus the next steps. (Lost the token later? Run `npm run token`.)
+Prefer to do it by hand? `cp .env.example .env` works too.
 *(The default `.env` works for localhost out of the box. Encryption keys are generated automatically on first run and stored in `data/.secrets/`.)*
 
 ### 3. Start the Services
@@ -263,6 +266,8 @@ On first launch, YOUPI PG automatically provisions `data/youpi_pg.sqlite`, creat
 ```bash
 npm run dev      # local / localhost mode (use this to try it out)
 ```
+`npm run dev` checks that the ports are free, starts every service, and prints the admin token to sign in at
+[`http://localhost:6001`](http://localhost:6001).
 
 > `npm start` runs **production mode** and exits unless a Cloudflare domain is configured
 > (`CLOUDFLARE_DOMAIN` in `.env` or in the Merchant Admin panel). For a localhost run use
