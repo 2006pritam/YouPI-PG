@@ -239,8 +239,8 @@ This section is a practical project warning, not a certification, compliance che
 - Standard Linux, macOS, or Windows host
 - *External database services (PostgreSQL/Redis) are completely optional!*
 
-> **Note:** Containerisation is not included in this repository yet — there is no `Dockerfile` or
-> `docker-compose.yml`. Run the services on a native Node.js host as described below.
+> **Note:** A `Dockerfile` and `docker-compose.yml` are included, but the primary documented path is
+> a native Node.js host as described below.
 
 ### Native Host Quickstart
 
@@ -256,15 +256,17 @@ npm install
 ```bash
 cp .env.example .env
 ```
-*(The default `.env` is pre-configured for localhost out of the box).*
+*(The default `.env` works for localhost out of the box. Encryption keys are generated automatically on first run and stored in `data/.secrets/`.)*
 
 ### 3. Start the Services
 On first launch, YOUPI PG automatically provisions `data/youpi_pg.sqlite`, creates the directory if missing, and executes idempotent migrations and baseline seeds. No manual database setup is required:
 ```bash
-npm run dev
-# or
-npm start
+npm run dev      # local / localhost mode (use this to try it out)
 ```
+
+> `npm start` runs **production mode** and exits unless a Cloudflare domain is configured
+> (`CLOUDFLARE_DOMAIN` in `.env` or in the Merchant Admin panel). For a localhost run use
+> `npm run dev`, or `YOUPI_ALLOW_LOCALHOST_MODE=true YOUPI_MODE=localhost npm start`.
 
 The services can then be accessed at the following local addresses:
 -  **Control Center Supervisor:** [`http://localhost:8090`](http://localhost:8090)

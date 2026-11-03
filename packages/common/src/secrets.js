@@ -19,7 +19,10 @@ const cache = new Map();
  */
 export function resolveSecret(name, envVar) {
   const fromEnv = envVar ? (process.env[envVar] || '').trim() : '';
-  if (fromEnv) return fromEnv;
+  // Template values copied verbatim from .env.example are not secrets: ignore them and
+  // fall through to the generated-and-persisted secret instead of using placeholder text.
+  if (fromEnv && !/^(REPLACE_WITH|<.*>$|your-|changeme)/i.test(fromEnv)) return fromEnv;
+  if (fromEnv && envVar) console.warn(`[secrets] ${envVar} looks like an unfilled template value; using a generated secret instead.`);
   if (cache.has(name)) return cache.get(name);
 
   const file = path.join(SECRETS_DIR, name);
